@@ -1,8 +1,0 @@
-feat: plugin system with require polyfill
-
-- Replace inject tool with execute_plugin and plugin tools
-- Add require() polyfill (from jerroldneal/require-extension)
-- Main process loads plugins from podbay-plugins.json at startup
-- Console-message IPC for renderer to persist plugin changes
-- CLI: add/list/remove plugin management commands
-- Plugin validation via require.resolve()
