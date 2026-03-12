@@ -6,6 +6,8 @@ services:
     environment:
       # Broker URL — override for Docker networking
       - PODBAY_BROKER_URL=ws://host.docker.internal:3099
+      # Search roots for app discovery inside the container
+      - PODBAY_SEARCH_ROOTS=/host/programs
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
