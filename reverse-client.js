@@ -172,6 +172,52 @@ const tools = [
       return { total: plugins.length };
     },
   },
+  // ── Injection tool (system plugin calls this) ────────────────────────
+  {
+    name: 'inject',
+    description: 'Return combined injection bundle for an opted-in target. Called by system plugin on startup.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        clientId: { type: 'string', description: 'Target client ID' },
+        url: { type: 'string', description: 'Target page URL' },
+        title: { type: 'string', description: 'Target page title' },
+        product: { type: 'string', description: 'Product identifier' },
+        userAgent: { type: 'string', description: 'Target user agent' },
+        timestamp: { type: 'string', description: 'Request timestamp' },
+      },
+    },
+    handler: (meta) => {
+      log('Inject request from:', meta.clientId || 'unknown', '—', meta.url || 'no-url');
+
+      // Resolve all plugin code from all pods
+      const allPlugins = pods.getAllPluginCode();
+      if (!allPlugins.length) {
+        return { code: null, plugins: 0, codeLength: 0, pods: [] };
+      }
+
+      // Combine all plugin code into a single injectable bundle
+      const parts = allPlugins.map(p => {
+        const header = '// [PodBay] plugin: ' + (p.type || 'unknown') + ' — ' + (p.description || '');
+        return header + '\n' + p.code;
+      });
+      const bundle = parts.join('\n\n');
+
+      // Track which pods contributed
+      const allPods = pods.loadPods();
+      const podNames = allPods.map(p => p.name);
+
+      log('Bundle built:', allPlugins.length, 'plugins,', bundle.length, 'chars from', podNames.join(', '));
+
+      return {
+        code: bundle,
+        plugins: allPlugins.length,
+        codeLength: bundle.length,
+        pods: podNames,
+        target: meta.clientId || 'unknown',
+      };
+    },
+  },
   // ── Pod management tools ─────────────────────────────────────────────
   {
     name: 'pods_list',
