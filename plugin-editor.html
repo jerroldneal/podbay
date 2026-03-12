@@ -126,9 +126,14 @@ async function mcpCall(tool, args = {}) {
     body: JSON.stringify({ jsonrpc: '2.0', id: Date.now(), method: 'tools/call', params: { name: 'podbay-' + tool, arguments: args } })
   });
   const j = await res.json();
+  if (j.error) throw new Error(j.error.message || JSON.stringify(j.error));
   if (j.result && j.result.content) {
     const txt = j.result.content.find(c => c.type === 'text');
-    if (txt) return JSON.parse(txt.text);
+    if (txt) {
+      const parsed = JSON.parse(txt.text);
+      if (parsed && parsed.error) throw new Error(parsed.error);
+      return parsed;
+    }
   }
   return null;
 }
@@ -216,29 +221,47 @@ async function savePlugin() {
   if (!plugin.type) { toast('Type is required'); return; }
 
   const pod = JSON.parse(JSON.stringify(pods[currentPodIdx]));
+  if (!Array.isArray(pod.plugins)) pod.plugins = [];
   if (currentPluginIdx >= 0) {
     pod.plugins[currentPluginIdx] = plugin;
   } else {
     pod.plugins.push(plugin);
   }
 
-  await mcpCall('pods_save', { filename: pod._file, pod: { name: pod.name, description: pod.description, plugins: pod.plugins } });
-  toast('Plugin saved to ' + pod._file);
+  const savedPodIdx = currentPodIdx;
+  const savedFile = pod._file;
+  try {
+    await mcpCall('pods_save', { filename: pod._file, pod: { name: pod.name, description: pod.description, plugins: pod.plugins } });
+  } catch (e) {
+    toast('Save failed: ' + e.message);
+    document.getElementById('status').textContent = 'Error: ' + e.message;
+    return;
+  }
+  toast('Plugin saved to ' + savedFile);
   await loadPods();
-  // re-select
-  document.getElementById('podSelect').value = currentPodIdx;
+  // re-select the pod we just saved
+  document.getElementById('podSelect').value = savedPodIdx;
   onPodSelect();
 }
 
 async function removePlugin() {
   if (currentPodIdx < 0 || currentPluginIdx < 0) { toast('Select a plugin first'); return; }
   const pod = JSON.parse(JSON.stringify(pods[currentPodIdx]));
+  const savedPodIdx = currentPodIdx;
   pod.plugins.splice(currentPluginIdx, 1);
-  await mcpCall('pods_save', { filename: pod._file, pod: { name: pod.name, description: pod.description, plugins: pod.plugins } });
+  try {
+    await mcpCall('pods_save', { filename: pod._file, pod: { name: pod.name, description: pod.description, plugins: pod.plugins } });
+  } catch (e) {
+    toast('Remove failed: ' + e.message);
+    document.getElementById('status').textContent = 'Error: ' + e.message;
+    return;
+  }
   toast('Plugin removed');
   currentPluginIdx = -1;
   clearFields();
   await loadPods();
+  document.getElementById('podSelect').value = savedPodIdx;
+  onPodSelect();
 }
 
 function testPlugin() {

@@ -14,4 +14,17 @@ services:
       # Mount host Electron app directories (adjust paths for your system)
       # Windows: mount LOCALAPPDATA\Programs for app discovery
       - "${LOCALAPPDATA}/Programs:/host/programs:rw"
+      # Mount pods directory so saves persist on the host
+      - ./pods:/app/pods:rw
     network_mode: bridge
+
+  dashboard:
+    image: nginx:alpine
+    container_name: podbay-dashboard
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    volumes:
+      - ./dashboard.html:/usr/share/nginx/html/index.html:ro
+      - ./pod-editor.html:/usr/share/nginx/html/pod-editor.html:ro
+      - ./plugin-editor.html:/usr/share/nginx/html/plugin-editor.html:ro
