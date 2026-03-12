@@ -1,0 +1,11 @@
+{
+  "name": "example",
+  "description": "Example pod with a hello-world plugin",
+  "plugins": [
+    {
+      "type": "greeting",
+      "code": "console.log('[PodBay] Hello from example pod!');",
+      "description": "Logs a greeting to the console"
+    }
+  ]
+}

@@ -382,6 +382,17 @@
       <span>🔔 Notifications</span>
       <span class="nav-item-count" id="navNotifCount">0</span>
     </div>
+    <div class="nav-section-label" style="margin-top:8px;">Tools</div>
+    <div class="nav-item" data-section="pods">
+      <span>🫛 Pods</span>
+      <span class="nav-item-count" id="navPodCount">0</span>
+    </div>
+    <div class="nav-item" data-section="pod-editor">
+      <span>📝 Pod Editor</span>
+    </div>
+    <div class="nav-item" data-section="plugin-editor">
+      <span>🔌 Plugin Editor</span>
+    </div>
   </nav>
 
   <div class="sidebar-footer">
@@ -578,7 +589,7 @@
   }
 
   async function refreshAll() {
-    await Promise.all([refreshApps(), refreshClients(), refreshNotifs()]);
+    await Promise.all([refreshApps(), refreshClients(), refreshNotifs(), loadPodData()]);
     renderSection();
   }
 
@@ -613,7 +624,10 @@
       apps: 'Electron Apps',
       windows: 'Connected Windows',
       clients: 'Broker Clients',
-      notifications: 'Notifications'
+      notifications: 'Notifications',
+      pods: 'Pods',
+      'pod-editor': 'Pod Editor',
+      'plugin-editor': 'Plugin Editor'
     };
     document.getElementById('topbarTitle').textContent = titles[currentSection] || '';
 
@@ -626,6 +640,9 @@
       case 'windows': renderWindows(area); break;
       case 'clients': renderClients(area); break;
       case 'notifications': renderNotifications(area); break;
+      case 'pods': renderPods(area); break;
+      case 'pod-editor': renderEditorFrame(area, 'pod-editor.html'); break;
+      case 'plugin-editor': renderEditorFrame(area, 'plugin-editor.html'); break;
     }
   }
 
@@ -782,6 +799,42 @@
           <span class="notif-msg">${esc(msg)}</span>
         </div>`;
       }).join('') + '</div>';
+  }
+
+  // ── Pods ─────────────────────────────────────────────────────────
+
+  let podData = [];
+
+  async function loadPodData() {
+    try {
+      const res = await callTool('podbay__pods_list', {});
+      podData = Array.isArray(res) ? res : [];
+      document.getElementById('navPodCount').textContent = podData.length;
+    } catch (_) { podData = []; }
+  }
+
+  function renderPods(area) {
+    document.getElementById('topbarMeta').textContent = podData.length + ' pods';
+    if (!podData.length) {
+      area.innerHTML = '<div class="empty-state">No pods found. Create one with the Pod Editor.</div>';
+      return;
+    }
+    area.innerHTML = '<div class="card-grid">' + podData.map(pod => {
+      const plugins = Array.isArray(pod.plugins) ? pod.plugins : [];
+      return `<div class="card" style="border-left:3px solid var(--purple)">
+        <div class="card-title"><span>🫛 ${esc(pod.name || pod._file)}</span></div>
+        <div class="card-meta"><span>${esc(pod.description || 'No description')}</span></div>
+        <div class="card-meta"><span>File: ${esc(pod._file)} · ${plugins.length} plugin(s)</span></div>
+        ${plugins.length ? '<ul class="plugins-list">' + plugins.map(p =>
+          `<li><span class="plugin-path">${esc(p.type || 'unnamed')}: ${esc(p.description || p.require || p.file || 'inline code')}</span></li>`
+        ).join('') + '</ul>' : ''}
+      </div>`;
+    }).join('') + '</div>';
+  }
+
+  function renderEditorFrame(area, file) {
+    document.getElementById('topbarMeta').textContent = '';
+    area.innerHTML = `<iframe src="${file}" style="width:100%;height:calc(100vh - 60px);border:none;border-radius:var(--radius-md);"></iframe>`;
   }
 
   // ── App Detail Drawer ──────────────────────────────────────────────

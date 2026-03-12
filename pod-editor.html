@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Pod Editor</title>
+<style>
+  :root {
+    --bg: #0a0a0f; --surface: #12121a; --card: #1a1a2e;
+    --border: #2a2a3e; --text: #e0e0e0; --text-muted: #888;
+    --accent: #6c5ce7; --accent-hover: #7c6cf7;
+    --danger: #e74c3c; --success: #2ecc71;
+    --radius: 12px; --font: 'Segoe UI', system-ui, sans-serif;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: var(--font); background: var(--bg); color: var(--text); min-height: 100vh; }
+  .container { max-width: 900px; margin: 0 auto; padding: 24px; }
+  h1 { font-size: 1.5rem; margin-bottom: 24px; display: flex; align-items: center; gap: 12px; }
+  h1 span { font-size: 2rem; }
+
+  .pod-list { display: flex; flex-direction: column; gap: 12px; margin-bottom: 24px; }
+  .pod-card {
+    background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 16px; cursor: pointer; transition: border-color .2s;
+  }
+  .pod-card:hover { border-color: var(--accent); }
+  .pod-card.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .pod-card h3 { font-size: 1rem; margin-bottom: 4px; }
+  .pod-card .meta { color: var(--text-muted); font-size: .85rem; }
+
+  .editor { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; }
+  .field { margin-bottom: 16px; }
+  .field label { display: block; font-size: .85rem; color: var(--text-muted); margin-bottom: 6px; }
+  .field input, .field textarea {
+    width: 100%; background: var(--card); border: 1px solid var(--border);
+    color: var(--text); padding: 10px 12px; border-radius: 8px; font-family: var(--font); font-size: .9rem;
+  }
+  .field textarea { min-height: 80px; resize: vertical; font-family: 'Cascadia Code', 'Fira Code', monospace; }
+  .field input:focus, .field textarea:focus { outline: none; border-color: var(--accent); }
+
+  .plugins-section { margin-top: 16px; }
+  .plugins-section h3 { font-size: .95rem; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; }
+  .plugin-item {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    padding: 12px; margin-bottom: 8px;
+  }
+  .plugin-item .plugin-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .plugin-item .plugin-type { font-weight: 600; color: var(--accent); }
+
+  .btn {
+    padding: 8px 16px; border: none; border-radius: 8px; cursor: pointer;
+    font-size: .85rem; font-weight: 600; transition: background .2s;
+  }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { background: var(--accent-hover); }
+  .btn-danger { background: var(--danger); color: #fff; }
+  .btn-danger:hover { background: #c0392b; }
+  .btn-success { background: var(--success); color: #fff; }
+  .btn-success:hover { background: #27ae60; }
+  .btn-sm { padding: 4px 10px; font-size: .8rem; }
+
+  .actions { display: flex; gap: 8px; margin-top: 16px; }
+  .toast {
+    position: fixed; bottom: 24px; right: 24px; padding: 12px 20px;
+    background: var(--success); color: #fff; border-radius: 8px; font-weight: 600;
+    opacity: 0; transition: opacity .3s; pointer-events: none;
+  }
+  .toast.show { opacity: 1; }
+  .empty { text-align: center; padding: 48px; color: var(--text-muted); }
+  .inline-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1><span>📦</span> Pod Editor</h1>
+  <div style="display:flex;gap:8px;margin-bottom:16px;">
+    <button class="btn btn-primary" onclick="newPod()">+ New Pod</button>
+    <button class="btn btn-success" onclick="loadPods()">↻ Refresh</button>
+  </div>
+  <div id="podList" class="pod-list"></div>
+  <div id="editor" class="editor" style="display:none;"></div>
+</div>
+<div id="toast" class="toast"></div>
+
+<script>
+const MCP = 'http://localhost:3098/mcp';
+let pods = [];
+let currentPod = null;
+
+async function mcpCall(tool, args = {}) {
+  const res = await fetch(MCP, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: Date.now(), method: 'tools/call', params: { name: 'podbay-' + tool, arguments: args } })
+  });
+  const j = await res.json();
+  if (j.result && j.result.content) {
+    const txt = j.result.content.find(c => c.type === 'text');
+    if (txt) return JSON.parse(txt.text);
+  }
+  return null;
+}
+
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 2000);
+}
+
+async function loadPods() {
+  pods = await mcpCall('pods_list') || [];
+  renderList();
+}
+
+function renderList() {
+  const el = document.getElementById('podList');
+  if (!pods.length) { el.innerHTML = '<div class="empty">No pods found. Create one to get started.</div>'; return; }
+  el.innerHTML = pods.map((p, i) => `
+    <div class="pod-card ${currentPod && currentPod._file === p._file ? 'active' : ''}" onclick="editPod(${i})">
+      <h3>${esc(p.name || p._file)}</h3>
+      <div class="meta">${esc(p.description || 'No description')} · ${(p.plugins || []).length} plugin(s) · ${p._file}</div>
+    </div>
+  `).join('');
+}
+
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+function newPod() {
+  currentPod = { name: '', description: '', plugins: [], _file: '' };
+  renderEditor();
+}
+
+function editPod(idx) {
+  currentPod = JSON.parse(JSON.stringify(pods[idx]));
+  renderEditor();
+}
+
+function renderEditor() {
+  const ed = document.getElementById('editor');
+  ed.style.display = 'block';
+  const isNew = !currentPod._file;
+  ed.innerHTML = `
+    <div class="inline-fields">
+      <div class="field">
+        <label>Pod Name</label>
+        <input id="podName" value="${esc(currentPod.name)}" placeholder="my-pod">
+      </div>
+      <div class="field">
+        <label>Filename (.pod)</label>
+        <input id="podFile" value="${esc(currentPod._file)}" placeholder="my-pod.pod" ${isNew ? '' : 'disabled'}>
+      </div>
+    </div>
+    <div class="field">
+      <label>Description</label>
+      <input id="podDesc" value="${esc(currentPod.description || '')}" placeholder="What does this pod do?">
+    </div>
+    <div class="plugins-section">
+      <h3>Plugins <button class="btn btn-primary btn-sm" onclick="addPlugin()">+ Add Plugin</button></h3>
+      <div id="pluginsList"></div>
+    </div>
+    <div class="actions">
+      <button class="btn btn-success" onclick="savePod()">Save Pod</button>
+      ${!isNew ? '<button class="btn btn-danger" onclick="deletePod()">Delete Pod</button>' : ''}
+      <button class="btn" style="background:var(--border);color:var(--text);" onclick="cancelEdit()">Cancel</button>
+    </div>
+  `;
+  renderPlugins();
+}
+
+function renderPlugins() {
+  const el = document.getElementById('pluginsList');
+  if (!currentPod.plugins.length) { el.innerHTML = '<div class="empty" style="padding:16px">No plugins yet.</div>'; return; }
+  el.innerHTML = currentPod.plugins.map((p, i) => `
+    <div class="plugin-item">
+      <div class="plugin-header">
+        <span class="plugin-type">${esc(p.type || 'unnamed')}</span>
+        <button class="btn btn-danger btn-sm" onclick="removePlugin(${i})">Remove</button>
+      </div>
+      <div class="inline-fields">
+        <div class="field"><label>Type</label><input value="${esc(p.type || '')}" onchange="updatePlugin(${i},'type',this.value)"></div>
+        <div class="field"><label>Description</label><input value="${esc(p.description || '')}" onchange="updatePlugin(${i},'description',this.value)"></div>
+      </div>
+      <div class="inline-fields">
+        <div class="field"><label>Require</label><input value="${esc(p.require || '')}" onchange="updatePlugin(${i},'require',this.value)" placeholder="module path"></div>
+        <div class="field"><label>File</label><input value="${esc(p.file || '')}" onchange="updatePlugin(${i},'file',this.value)" placeholder="file path"></div>
+      </div>
+      <div class="field"><label>Dashboard URL</label><input value="${esc(p.dashboard || '')}" onchange="updatePlugin(${i},'dashboard',this.value)" placeholder="http://..."></div>
+      <div class="field"><label>Inline Code</label><textarea onchange="updatePlugin(${i},'code',this.value)" placeholder="JavaScript code...">${esc(p.code || '')}</textarea></div>
+    </div>
+  `).join('');
+}
+
+function addPlugin() {
+  currentPod.plugins.push({ type: '', description: '', require: '', file: '', code: '', dashboard: '' });
+  renderPlugins();
+}
+
+function removePlugin(idx) {
+  currentPod.plugins.splice(idx, 1);
+  renderPlugins();
+}
+
+function updatePlugin(idx, key, val) {
+  currentPod.plugins[idx][key] = val;
+}
+
+async function savePod() {
+  const name = document.getElementById('podName').value.trim();
+  const desc = document.getElementById('podDesc').value.trim();
+  let file = document.getElementById('podFile').value.trim();
+  if (!name) { toast('Name is required'); return; }
+  if (!file) file = name.toLowerCase().replace(/[^a-z0-9]+/g, '-') + '.pod';
+  if (!file.endsWith('.pod')) file += '.pod';
+
+  // Clean plugin objects — remove empty strings
+  const plugins = currentPod.plugins.map(p => {
+    const clean = {};
+    if (p.type) clean.type = p.type;
+    if (p.description) clean.description = p.description;
+    if (p.require) clean.require = p.require;
+    if (p.file) clean.file = p.file;
+    if (p.code) clean.code = p.code;
+    if (p.dashboard) clean.dashboard = p.dashboard;
+    return clean;
+  });
+
+  await mcpCall('pods_save', { filename: file, pod: { name, description: desc, plugins } });
+  toast('Saved: ' + file);
+  await loadPods();
+  currentPod = pods.find(p => p._file === file) || null;
+  if (currentPod) renderEditor();
+}
+
+async function deletePod() {
+  if (!currentPod._file) return;
+  if (!confirm('Delete ' + currentPod._file + '?')) return;
+  await mcpCall('pods_delete', { filename: currentPod._file });
+  toast('Deleted: ' + currentPod._file);
+  currentPod = null;
+  document.getElementById('editor').style.display = 'none';
+  await loadPods();
+}
+
+function cancelEdit() {
+  currentPod = null;
+  document.getElementById('editor').style.display = 'none';
+  renderList();
+}
+
+loadPods();
+</script>
+</body>
+</html>

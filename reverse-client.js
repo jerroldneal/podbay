@@ -11,7 +11,7 @@
  */
 
 const WebSocket = require('ws');
-const { open, close, discover, readPlugins, writePlugins, resolveApp } = require('./index');
+const { open, close, discover, readPlugins, writePlugins, resolveApp, pods } = require('./index');
 const asar = require('./lib/asar');
 
 const TAG = '[PodBay RC]';
@@ -170,6 +170,77 @@ const tools = [
       if (!Array.isArray(plugins)) return { error: 'plugins must be an array' };
       writePlugins(app.asarPath, plugins);
       return { total: plugins.length };
+    },
+  },
+  // ── Pod management tools ─────────────────────────────────────────────
+  {
+    name: 'pods_list',
+    description: 'List all .pod files from the pods directory',
+    inputSchema: { type: 'object', properties: {} },
+    handler: () => pods.loadPods(),
+  },
+  {
+    name: 'pods_get',
+    description: 'Get a single pod by filename',
+    inputSchema: {
+      type: 'object',
+      properties: { filename: { type: 'string', description: 'Pod filename (e.g. my-pod.pod)' } },
+      required: ['filename'],
+    },
+    handler: ({ filename }) => {
+      const pod = pods.getPod(filename);
+      if (!pod) return { error: 'Pod not found: ' + filename };
+      return pod;
+    },
+  },
+  {
+    name: 'pods_save',
+    description: 'Create or update a .pod file',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        filename: { type: 'string', description: 'Pod filename (e.g. my-pod.pod)' },
+        pod: { type: 'object', description: 'Pod object with name, description, and plugins array' },
+      },
+      required: ['filename', 'pod'],
+    },
+    handler: ({ filename, pod: podData }) => {
+      if (!filename || !filename.endsWith('.pod')) return { error: 'Filename must end with .pod' };
+      pods.savePod(filename, podData);
+      return { saved: filename };
+    },
+  },
+  {
+    name: 'pods_delete',
+    description: 'Delete a .pod file',
+    inputSchema: {
+      type: 'object',
+      properties: { filename: { type: 'string', description: 'Pod filename to delete' } },
+      required: ['filename'],
+    },
+    handler: ({ filename }) => {
+      if (pods.deletePod(filename)) return { deleted: filename };
+      return { error: 'Pod not found: ' + filename };
+    },
+  },
+  {
+    name: 'pods_resolve',
+    description: 'Resolve all plugin code from all pods (preview what would be injected)',
+    inputSchema: { type: 'object', properties: {} },
+    handler: () => {
+      const allPods = pods.loadPods();
+      return allPods.map(p => ({
+        name: p.name,
+        file: p._file,
+        plugins: pods.resolvePlugins(p.plugins).map(r => ({
+          type: r.type,
+          description: r.description,
+          dashboard: r.dashboard,
+          hasCode: !!r.code,
+          codeLength: r.code ? r.code.length : 0,
+          error: r.error,
+        })),
+      }));
     },
   },
 ];

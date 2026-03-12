@@ -6,6 +6,7 @@ const path = require('path');
 const readline = require('readline');
 const { discover } = require('./lib/discover');
 const asar = require('./lib/asar');
+const pods = require('./lib/pods');
 
 const TAG = '[PodBay]';
 const WORK_DIR = path.join(__dirname, '.work');
@@ -263,6 +264,29 @@ function handleCli(args) {
           process.exit(1);
       }
     }
+    case 'pods': {
+      const sub = args[1];
+      switch (sub) {
+        case 'list':
+          console.log(JSON.stringify(pods.loadPods(), null, 2));
+          return;
+        case 'get':
+          if (!args[2]) { log('Usage: podbay pods get <filename>'); process.exit(1); }
+          const pod = pods.getPod(args[2]);
+          if (!pod) { log('Pod not found:', args[2]); process.exit(1); }
+          console.log(JSON.stringify(pod, null, 2));
+          return;
+        case 'delete':
+          if (!args[2]) { log('Usage: podbay pods delete <filename>'); process.exit(1); }
+          if (pods.deletePod(args[2])) log('Deleted:', args[2]);
+          else { log('Pod not found:', args[2]); process.exit(1); }
+          return;
+        default:
+          log('Unknown pods command:', sub);
+          log('Usage: podbay pods <list|get|delete> [args]');
+          process.exit(1);
+      }
+    }
     default:
       log('Unknown command:', cmd);
       log('Usage: podbay <list|open|close|status|plugins> [args]');
@@ -326,7 +350,7 @@ async function interactive() {
   }
 }
 
-module.exports = { open, close, discover, readPlugins, writePlugins, pluginsPath, resolveApp };
+module.exports = { open, close, discover, readPlugins, writePlugins, pluginsPath, resolveApp, pods };
 
 if (require.main === module) {
   const args = process.argv.slice(2);
