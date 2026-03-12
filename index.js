@@ -149,13 +149,134 @@ function pluginRemove(rl, asarPath) {
   });
 }
 
-// ── CLI ──────────────────────────────────────────────────────────────────────
+// ── Resolve app by name or 1-based index ─────────────────────────────────
+
+function resolveApp(apps, nameOrIndex) {
+  const idx = parseInt(nameOrIndex, 10);
+  if (!isNaN(idx) && idx >= 1 && idx <= apps.length) return apps[idx - 1];
+  return apps.find(a => a.name.toLowerCase() === nameOrIndex.toLowerCase()) || null;
+}
+
+// ── Non-interactive CLI ──────────────────────────────────────────────────
+
+function cliList() {
+  const apps = discover();
+  const result = apps.map((a, i) => ({
+    index: i + 1,
+    name: a.name,
+    status: asar.status(a.asarPath),
+    plugins: readPlugins(a.asarPath).length,
+    asarPath: a.asarPath,
+  }));
+  console.log(JSON.stringify(result, null, 2));
+}
+
+function cliOpen(nameOrIndex) {
+  const apps = discover();
+  const app = resolveApp(apps, nameOrIndex);
+  if (!app) { log('App not found:', nameOrIndex); process.exit(1); }
+  open(app.asarPath);
+}
+
+function cliClose(nameOrIndex) {
+  const apps = discover();
+  const app = resolveApp(apps, nameOrIndex);
+  if (!app) { log('App not found:', nameOrIndex); process.exit(1); }
+  close(app.asarPath);
+}
+
+function cliStatus(nameOrIndex) {
+  const apps = discover();
+  const app = resolveApp(apps, nameOrIndex);
+  if (!app) { log('App not found:', nameOrIndex); process.exit(1); }
+  console.log(JSON.stringify({
+    name: app.name,
+    status: asar.status(app.asarPath),
+    plugins: readPlugins(app.asarPath),
+  }, null, 2));
+}
+
+function cliPluginsList(nameOrIndex) {
+  const apps = discover();
+  const app = resolveApp(apps, nameOrIndex);
+  if (!app) { log('App not found:', nameOrIndex); process.exit(1); }
+  console.log(JSON.stringify(readPlugins(app.asarPath), null, 2));
+}
+
+function cliPluginsAdd(nameOrIndex, pluginPath) {
+  const apps = discover();
+  const app = resolveApp(apps, nameOrIndex);
+  if (!app) { log('App not found:', nameOrIndex); process.exit(1); }
+  try { require.resolve(pluginPath); }
+  catch (_) { log('Invalid — require.resolve() failed for:', pluginPath); process.exit(1); }
+  const list = readPlugins(app.asarPath);
+  if (list.includes(pluginPath)) { log('Already in list:', pluginPath); return; }
+  list.push(pluginPath);
+  writePlugins(app.asarPath, list);
+  log('Added:', pluginPath);
+}
+
+function cliPluginsRemove(nameOrIndex, indexStr) {
+  const apps = discover();
+  const app = resolveApp(apps, nameOrIndex);
+  if (!app) { log('App not found:', nameOrIndex); process.exit(1); }
+  const idx = parseInt(indexStr, 10) - 1;
+  const list = readPlugins(app.asarPath);
+  if (isNaN(idx) || idx < 0 || idx >= list.length) {
+    log('Invalid plugin index:', indexStr);
+    process.exit(1);
+  }
+  const removed = list.splice(idx, 1)[0];
+  writePlugins(app.asarPath, list);
+  log('Removed:', removed);
+}
+
+function cliPluginsSet(nameOrIndex, jsonStr) {
+  const apps = discover();
+  const app = resolveApp(apps, nameOrIndex);
+  if (!app) { log('App not found:', nameOrIndex); process.exit(1); }
+  let list;
+  try { list = JSON.parse(jsonStr); }
+  catch (_) { log('Invalid JSON:', jsonStr); process.exit(1); }
+  if (!Array.isArray(list)) { log('Plugin list must be an array'); process.exit(1); }
+  writePlugins(app.asarPath, list);
+  log('Plugin list updated:', list.length, 'plugin(s)');
+}
+
+function handleCli(args) {
+  const cmd = args[0];
+  switch (cmd) {
+    case 'list':    return cliList();
+    case 'open':    return cliOpen(args[1]);
+    case 'close':   return cliClose(args[1]);
+    case 'status':  return cliStatus(args[1]);
+    case 'plugins': {
+      const sub = args[1];
+      switch (sub) {
+        case 'list':   return cliPluginsList(args[2]);
+        case 'add':    return cliPluginsAdd(args[2], args[3]);
+        case 'remove': return cliPluginsRemove(args[2], args[3]);
+        case 'set':    return cliPluginsSet(args[2], args[3]);
+        default:
+          log('Unknown plugins command:', sub);
+          log('Usage: podbay plugins <list|add|remove|set> <app> [args]');
+          process.exit(1);
+      }
+    }
+    default:
+      log('Unknown command:', cmd);
+      log('Usage: podbay <list|open|close|status|plugins> [args]');
+      process.exit(1);
+  }
+}
+
+// ── Interactive CLI ─────────────────────────────────────────────────────────
 
 function ask(rl, q) {
   return new Promise(resolve => rl.question(q, resolve));
 }
 
-async function main() {
+async function interactive() {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 
   try {
@@ -205,8 +326,13 @@ async function main() {
   }
 }
 
-module.exports = { open, close, discover, readPlugins, writePlugins, pluginsPath };
+module.exports = { open, close, discover, readPlugins, writePlugins, pluginsPath, resolveApp };
 
 if (require.main === module) {
-  main().catch(e => { console.error(TAG, e.message); process.exit(1); });
+  const args = process.argv.slice(2);
+  if (args.length > 0) {
+    handleCli(args);
+  } else {
+    interactive().catch(e => { console.error(TAG, e.message); process.exit(1); });
+  }
 }

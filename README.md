@@ -4,7 +4,11 @@
 
 Self-contained CLI that opens portals in Electron apps and manages plugins. When opened, every renderer window gets `execute_plugin` and `plugin` tools connected to the broker, plus a `require()` polyfill for loading modules at runtime.
 
+Supports three modes: interactive menu (default), scriptable CLI parameters, and MCP reverse client (publishes all operations as broker tools).
+
 ## Usage
+
+### Interactive Mode
 
 ```bash
 node podbay
@@ -19,6 +23,56 @@ node podbay
    - **4. List plugins** — Show configured plugins with resolved paths
    - **5. Remove plugin** — Remove a plugin by number
 
+### CLI Parameters
+
+Every interactive operation is available as a direct command with JSON output:
+
+```bash
+# App discovery
+node podbay list                                        # JSON array of all apps
+
+# Portal management (by app name or 1-based index)
+node podbay open clubwpt-desktop                        # Open portal
+node podbay close clubwpt-desktop                       # Close portal
+node podbay status clubwpt-desktop                      # Status + plugins JSON
+
+# Plugin management
+node podbay plugins list clubwpt-desktop                # List plugins as JSON
+node podbay plugins add clubwpt-desktop /path/to.js     # Add a plugin
+node podbay plugins remove clubwpt-desktop 2            # Remove plugin at index 2
+node podbay plugins set clubwpt-desktop '["/a.js"]'     # Replace full plugin list
+```
+
+### Reverse Client (MCP Tools)
+
+Run as a long-lived process that publishes all operations as tools on the broker:
+
+```bash
+npm run serve                                           # ws://localhost:3099
+node reverse-client.js --url ws://myhost:3099           # custom broker
+```
+
+Registers as `podbay` on the broker with 8 tools:
+
+| Tool | Description |
+|------|-------------|
+| `list` | Discover installed Electron apps |
+| `open` | Open portal for an app |
+| `close` | Close portal for an app |
+| `status` | Get portal status and plugin list |
+| `plugins_list` | List configured plugins |
+| `plugins_add` | Add a plugin by path |
+| `plugins_remove` | Remove a plugin by index |
+| `plugins_set` | Replace full plugin list |
+
+### Docker
+
+```bash
+docker compose up -d
+```
+
+Runs the reverse client in a container. Requires volume mount for host Electron app directories. Set `PODBAY_BROKER_URL` to override the broker address (defaults to `ws://host.docker.internal:3099`).
+
 ## Plugins
 
 Plugins are file paths stored in `podbay-plugins.json` alongside the app's `app.asar`. At startup, the main process reads this file and executes each plugin in every renderer window via `executeJavaScript`.
@@ -31,21 +85,25 @@ Plugins are file paths stored in `podbay-plugins.json` alongside the app's `app.
 ## Programmatic
 
 ```javascript
-const { open, close, discover, readPlugins, writePlugins } = require('./podbay');
+const { open, close, discover, readPlugins, writePlugins, resolveApp } = require('./podbay');
 
 const apps = discover();
-open(apps[0].asarPath);    // Open portal
-close(apps[0].asarPath);   // Close portal
+const app = resolveApp(apps, 'clubwpt-desktop');  // By name or index
+open(app.asarPath);    // Open portal
+close(app.asarPath);   // Close portal
 
-const plugins = readPlugins(apps[0].asarPath);  // Get plugin list
-writePlugins(apps[0].asarPath, [...plugins, 'd:\\path\\to\\plugin.js']);
+const plugins = readPlugins(app.asarPath);  // Get plugin list
+writePlugins(app.asarPath, [...plugins, 'd:\\path\\to\\plugin.js']);
 ```
 
 ## How It Works
 
 ```
 podbay/
-  index.js              ← CLI entry point + plugin management
+  index.js              ← CLI entry point + plugin management + CLI params
+  reverse-client.js     ← Reverse client — publishes tools on broker
+  Dockerfile            ← Container image for reverse client
+  docker-compose.yml    ← Docker orchestration with host volume mount
   lib/discover.js       ← Scan for installed Electron apps
   lib/asar.js           ← ASAR backup/extract/patch/repack/restore
   lib/portal-payload.js ← Portal payload with require polyfill + broker tools

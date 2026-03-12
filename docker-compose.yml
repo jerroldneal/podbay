@@ -1,0 +1,15 @@
+services:
+  podbay:
+    build: .
+    container_name: podbay
+    restart: unless-stopped
+    environment:
+      # Broker URL — override for Docker networking
+      - PODBAY_BROKER_URL=ws://host.docker.internal:3099
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      # Mount host Electron app directories (adjust paths for your system)
+      # Windows: mount LOCALAPPDATA\Programs for app discovery
+      - "${LOCALAPPDATA}/Programs:/host/programs:rw"
+    network_mode: bridge

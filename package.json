@@ -1,13 +1,17 @@
 {
   "name": "podbay",
-  "version": "1.0.0",
-  "description": "Open the pod bay doors — unified Electron portal with built-in inject tool",
+  "version": "2.0.0",
+  "description": "Open the pod bay doors — Electron portal CLI with plugin system and MCP tool publishing",
   "main": "index.js",
   "bin": {
     "podbay": "index.js"
   },
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "serve": "node reverse-client.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
   },
   "license": "MIT"
 }
