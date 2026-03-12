@@ -664,7 +664,7 @@
         return `<div class="card ${isOpen ? 'card-portal-open' : 'card-portal-closed'}" data-app="${esc(app.name)}">
           <div class="card-title">
             <span>${esc(app.name)}</span>
-            <span class="status-badge ${isOpen ? 'st-open' : 'st-closed'}">${isOpen ? '● Open' : '○ Closed'}</span>
+            <span class="status-badge ${isOpen ? 'st-open' : 'st-closed'}">${isOpen ? '● Opted-In' : '○ Opted-Out'}</span>
           </div>
           <div class="card-meta">
             <span>Plugins: ${plugins.length}</span>
@@ -677,8 +677,8 @@
           ).join('') + '</ul>' : '<div style="font-size:11px;color:var(--text-muted)">No plugins</div>'}
           <div class="btn-row">
             ${isOpen
-              ? `<button class="btn btn-red" onclick="portalClose('${esc(app.name)}')">Close Portal</button>`
-              : `<button class="btn btn-green" onclick="portalOpen('${esc(app.name)}')">Open Portal</button>`}
+              ? `<button class="btn btn-red" onclick="portalClose('${esc(app.name)}')">Opt-Out</button>`
+              : `<button class="btn btn-green" onclick="portalOpen('${esc(app.name)}')">Opt-In</button>`}
             <button class="btn btn-accent" onclick="openAddPlugin('${esc(app.name)}')">+ Plugin</button>
             <button class="btn" onclick="openAppDrawer('${esc(app.name)}')">Details</button>
           </div>
@@ -693,7 +693,7 @@
             <span class="name">📦 ${esc(app.name)}</span>
             <span style="display:flex;align-items:center;gap:8px;">
               <span style="font-size:10px;color:var(--text-muted)">Plugins: ${plugins.length}</span>
-              <span class="status-badge ${isOpen ? 'st-open' : 'st-closed'}">${isOpen ? '● Open' : '○ Closed'}</span>
+              <span class="status-badge ${isOpen ? 'st-open' : 'st-closed'}">${isOpen ? '● Opted-In' : '○ Opted-Out'}</span>
             </span>
           </div>`;
         }).join('') + '</div>';
@@ -848,16 +848,16 @@
 
     document.getElementById('drawerTitle').textContent = app.name;
     document.getElementById('drawerMeta').innerHTML =
-      `<span class="status-badge ${isOpen ? 'st-open' : 'st-closed'}">${isOpen ? '● Portal Open' : '○ Portal Closed'}</span>`
+      `<span class="status-badge ${isOpen ? 'st-open' : 'st-closed'}">${isOpen ? '● Opted-In' : '○ Opted-Out'}</span>`
       + `<span style="font-size:11px;color:var(--text-muted)">Plugins: ${plugins.length}</span>`;
 
     document.getElementById('drawerBody').innerHTML = `
       <div class="drawer-section">
-        <div class="drawer-section-title">Portal Control</div>
+        <div class="drawer-section-title">System Plugin</div>
         <div class="btn-row">
           ${isOpen
-            ? `<button class="btn btn-red" onclick="portalClose('${esc(app.name)}');closeDrawer()">Close Portal</button>`
-            : `<button class="btn btn-green" onclick="portalOpen('${esc(app.name)}');closeDrawer()">Open Portal</button>`}
+            ? `<button class="btn btn-red" onclick="portalClose('${esc(app.name)}');closeDrawer()">Opt-Out</button>`
+            : `<button class="btn btn-green" onclick="portalOpen('${esc(app.name)}');closeDrawer()">Opt-In</button>`}
         </div>
       </div>
       <div class="drawer-section">
@@ -908,22 +908,22 @@
 
   window.portalOpen = async function(appName) {
     try {
-      await callTool('podbay__open', { app: appName });
+      await callTool('podbay__opt_in', { app: appName });
       await refreshApps();
       renderSection();
     } catch (e) {
-      alert('Failed to open portal: ' + e.message);
+      alert('Failed to opt-in: ' + e.message);
     }
   };
 
   window.portalClose = async function(appName) {
-    if (!confirm('Close portal for ' + appName + '? The app will need a restart.')) return;
+    if (!confirm('Opt-out ' + appName + '? The app will need a restart.')) return;
     try {
-      await callTool('podbay__close', { app: appName });
+      await callTool('podbay__opt_out', { app: appName });
       await refreshApps();
       renderSection();
     } catch (e) {
-      alert('Failed to close portal: ' + e.message);
+      alert('Failed to opt-out: ' + e.message);
     }
   };
 

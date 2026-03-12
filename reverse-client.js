@@ -11,7 +11,7 @@
  */
 
 const WebSocket = require('ws');
-const { open, close, discover, readPlugins, writePlugins, resolveApp, pods } = require('./index');
+const { open, close, optIn, optOut, discover, readPlugins, writePlugins, resolveApp, pods } = require('./index');
 const asar = require('./lib/asar');
 
 const TAG = '[PodBay RC]';
@@ -69,6 +69,38 @@ const tools = [
       if (!app) return { error: 'App not found: ' + nameOrIndex };
       close(app.asarPath);
       return { name: app.name, status: 'closed' };
+    },
+  },
+  {
+    name: 'opt_in',
+    description: 'Opt-in an Electron app — inject system plugin for broker-driven injection',
+    inputSchema: {
+      type: 'object',
+      properties: { app: { type: 'string', description: 'App name or 1-based index' } },
+      required: ['app'],
+    },
+    handler: ({ app: nameOrIndex }) => {
+      const apps = discover();
+      const app = resolveApp(apps, nameOrIndex);
+      if (!app) return { error: 'App not found: ' + nameOrIndex };
+      optIn(app.asarPath);
+      return { name: app.name, status: 'opted-in' };
+    },
+  },
+  {
+    name: 'opt_out',
+    description: 'Opt-out an Electron app — restore original ASAR',
+    inputSchema: {
+      type: 'object',
+      properties: { app: { type: 'string', description: 'App name or 1-based index' } },
+      required: ['app'],
+    },
+    handler: ({ app: nameOrIndex }) => {
+      const apps = discover();
+      const app = resolveApp(apps, nameOrIndex);
+      if (!app) return { error: 'App not found: ' + nameOrIndex };
+      optOut(app.asarPath);
+      return { name: app.name, status: 'opted-out' };
     },
   },
   {

@@ -11,6 +11,7 @@ const pods = require('./lib/pods');
 const TAG = '[PodBay]';
 const WORK_DIR = path.join(__dirname, '.work');
 const PAYLOAD_PATH = path.join(__dirname, 'lib', 'portal-payload.js');
+const SYSTEM_PLUGIN_PATH = path.join(__dirname, 'lib', 'system-plugin.js');
 
 function log(...args) { console.log(TAG, ...args); }
 
@@ -56,6 +57,54 @@ function close(asarPath) {
   log('Restoring original ASAR...');
   asar.restore(asarPath);
   log('Portal closed. Restart the app to deactivate.');
+}
+
+// ── Opt-In / Opt-Out (System Plugin model) ───────────────────────────────
+
+/**
+ * Opt-in an Electron app — inject system plugin via ASAR patch.
+ * The system plugin connects to the broker and requests its injection bundle
+ * from PodBay, replacing the old portal-payload approach.
+ * @param {string} asarPath
+ */
+function optIn(asarPath) {
+  if (asar.status(asarPath) === 'open') {
+    log('Already opted-in for', asarPath);
+    return;
+  }
+
+  const payload = fs.readFileSync(SYSTEM_PLUGIN_PATH, 'utf8');
+  const resourcesDir = path.dirname(asarPath);
+
+  log('Backing up ASAR...');
+  asar.backup(asarPath);
+
+  log('Extracting...');
+  asar.extract(asarPath, WORK_DIR);
+
+  log('Patching with system plugin...');
+  asar.patchWindowManager(WORK_DIR, payload, resourcesDir);
+
+  log('Repacking...');
+  asar.repack(WORK_DIR, asarPath);
+
+  fs.rmSync(WORK_DIR, { recursive: true, force: true });
+  log('Opted-in. Restart the app to activate.');
+}
+
+/**
+ * Opt-out an Electron app — restore original ASAR from backup.
+ * @param {string} asarPath
+ */
+function optOut(asarPath) {
+  if (asar.status(asarPath) === 'closed') {
+    log('Already opted-out for', asarPath);
+    return;
+  }
+
+  log('Restoring original ASAR...');
+  asar.restore(asarPath);
+  log('Opted-out. Restart the app to restore original behavior.');
 }
 
 // ── Plugin config helpers ────────────────────────────────────────────────
@@ -350,7 +399,7 @@ async function interactive() {
   }
 }
 
-module.exports = { open, close, discover, readPlugins, writePlugins, pluginsPath, resolveApp, pods };
+module.exports = { open, close, optIn, optOut, discover, readPlugins, writePlugins, pluginsPath, resolveApp, pods };
 
 if (require.main === module) {
   const args = process.argv.slice(2);
