@@ -1,0 +1,13 @@
+{
+  "name": "podbay",
+  "version": "1.0.0",
+  "description": "Open the pod bay doors — unified Electron portal with built-in inject tool",
+  "main": "index.js",
+  "bin": {
+    "podbay": "index.js"
+  },
+  "scripts": {
+    "start": "node index.js"
+  },
+  "license": "MIT"
+}
