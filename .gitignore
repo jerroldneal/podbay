@@ -1,3 +1,6 @@
 node_modules/
 .work/
 *.tmp
+*.bak
+.mcp-shell-exec-logs/
+.vscode/

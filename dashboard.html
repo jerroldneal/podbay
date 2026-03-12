@@ -1,0 +1,983 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PodBay Dashboard</title>
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --bg-base:     #0a0e17;
+      --bg-surface:  #111827;
+      --bg-elevated: #1a2236;
+      --bg-hover:    #1e293b;
+      --accent:      #63b3ed;
+      --accent-dim:  rgba(99,179,237,0.15);
+      --accent-glow: rgba(99,179,237,0.25);
+      --accent-bright: #90cdf4;
+      --success:     #68d391;
+      --success-dim: rgba(104,211,145,0.15);
+      --danger:      #fc8181;
+      --danger-dim:  rgba(252,129,129,0.15);
+      --warning:     #f6ad55;
+      --warning-dim: rgba(246,173,85,0.15);
+      --purple:      #b794f6;
+      --purple-dim:  rgba(183,148,246,0.15);
+      --text-primary:   #e2e8f0;
+      --text-secondary: #a0aec0;
+      --text-muted:     #4a5568;
+      --border:      rgba(255,255,255,0.06);
+      --border-focus:rgba(99,179,237,0.4);
+      --glass-bg:    rgba(17,24,39,0.6);
+      --glass-border:rgba(255,255,255,0.08);
+      --sidebar-width: 220px;
+      --radius-sm: 6px;
+      --radius-md: 10px;
+      --tr-fast:  150ms cubic-bezier(.4,0,.2,1);
+      --tr-smooth:250ms cubic-bezier(.4,0,.2,1);
+    }
+    @keyframes fade-in { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
+    @keyframes slide-in { from{transform:translateX(100%)} to{transform:translateX(0)} }
+
+    body {
+      width:100%; min-height:100vh;
+      font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+      font-size:13px; background:var(--bg-base); color:var(--text-primary);
+      display:flex; overflow:hidden; -webkit-font-smoothing:antialiased;
+    }
+
+    /* ── Sidebar ── */
+    .sidebar {
+      width:var(--sidebar-width); height:100vh;
+      background:var(--bg-surface); border-right:1px solid var(--border);
+      display:flex; flex-direction:column; flex-shrink:0;
+      position:fixed; left:0; top:0; z-index:100; overflow:hidden;
+    }
+    .sidebar-header { padding:18px 16px 14px; border-bottom:1px solid var(--border); flex-shrink:0; }
+    .sidebar-brand  { display:flex; align-items:center; gap:10px; }
+    .sidebar-logo   {
+      width:32px; height:32px; border-radius:var(--radius-sm);
+      background:linear-gradient(135deg,var(--accent) 0%,#805ad5 100%);
+      display:flex; align-items:center; justify-content:center;
+      font-size:18px; flex-shrink:0;
+    }
+    .sidebar-title    { font-size:14px; font-weight:700; color:var(--text-primary); }
+    .sidebar-subtitle { font-size:10px; color:var(--text-muted); margin-top:2px; text-transform:uppercase; letter-spacing:.5px; }
+
+    .sidebar-stats {
+      padding:10px 16px; border-bottom:1px solid var(--border); flex-shrink:0;
+      display:flex; gap:6px;
+    }
+    .stat-pill { flex:1; text-align:center; }
+    .stat-pill .stat-num  { font-size:18px; font-weight:700; color:var(--accent); }
+    .stat-pill .stat-lbl  { font-size:9px; color:var(--text-muted); text-transform:uppercase; letter-spacing:.5px; }
+
+    .sidebar-search {
+      padding:10px 16px 8px; border-bottom:1px solid var(--border); flex-shrink:0;
+    }
+    .sidebar-search input {
+      width:100%; padding:6px 10px; background:var(--bg-elevated); border:1px solid var(--border);
+      border-radius:var(--radius-sm); color:var(--text-primary); font-size:11px; font-family:inherit;
+      outline:none; transition:var(--tr-fast);
+    }
+    .sidebar-search input::placeholder { color:var(--text-muted); }
+    .sidebar-search input:focus { border-color:var(--border-focus); box-shadow:0 0 0 2px var(--accent-dim); }
+
+    .sidebar-nav { flex:1; overflow-y:auto; padding:6px 8px; }
+    .sidebar-nav::-webkit-scrollbar { width:3px; }
+    .sidebar-nav::-webkit-scrollbar-thumb { background:var(--text-muted); border-radius:3px; }
+
+    .nav-section-label {
+      font-size:9px; font-weight:700; letter-spacing:1px; text-transform:uppercase;
+      color:var(--text-muted); padding:10px 10px 4px;
+    }
+    .nav-item {
+      display:flex; align-items:center; justify-content:space-between;
+      padding:7px 10px; border-radius:var(--radius-sm); cursor:pointer;
+      font-size:11px; color:var(--text-secondary); transition:var(--tr-fast);
+      user-select:none;
+    }
+    .nav-item:hover { background:var(--bg-hover); color:var(--text-primary); }
+    .nav-item.active { background:var(--accent-dim); color:var(--accent); font-weight:600; }
+    .nav-item-count {
+      font-size:10px; background:var(--bg-elevated); color:var(--text-muted);
+      border-radius:10px; padding:1px 6px; font-weight:600;
+    }
+    .nav-item.active .nav-item-count { background:var(--accent-dim); color:var(--accent); }
+
+    .sidebar-footer {
+      padding:10px 16px; border-top:1px solid var(--border); flex-shrink:0;
+      display:flex; align-items:center; gap:6px; font-size:10px; color:var(--text-muted);
+    }
+    .broker-dot {
+      width:8px; height:8px; border-radius:50%; background:var(--danger); flex-shrink:0;
+    }
+    .broker-dot.connected { background:var(--success); }
+
+    /* ── Main ── */
+    .main { flex:1; margin-left:var(--sidebar-width); height:100vh; display:flex; flex-direction:column; overflow:hidden; }
+
+    .topbar {
+      height:50px; background:var(--bg-surface); border-bottom:1px solid var(--border);
+      display:flex; align-items:center; justify-content:space-between; padding:0 20px; flex-shrink:0;
+    }
+    .topbar-left   { display:flex; align-items:center; gap:16px; }
+    .topbar-title  { font-size:15px; font-weight:700; color:var(--text-primary); }
+    .topbar-right  { display:flex; align-items:center; gap:8px; }
+
+    .view-toggle { display:flex; background:var(--bg-elevated); border-radius:var(--radius-sm); overflow:hidden; border:1px solid var(--border); }
+    .view-btn {
+      padding:5px 12px; border:none; background:transparent; color:var(--text-muted);
+      font-size:11px; font-weight:500; cursor:pointer; transition:var(--tr-fast); font-family:inherit;
+    }
+    .view-btn:hover { color:var(--text-secondary); background:var(--bg-hover); }
+    .view-btn.active { background:var(--accent-dim); color:var(--accent); font-weight:700; }
+
+    .topbar-meta { font-size:11px; color:var(--text-muted); }
+
+    .refresh-btn {
+      background:var(--bg-elevated); border:1px solid var(--border); border-radius:var(--radius-sm);
+      color:var(--text-muted); cursor:pointer; font-size:14px; padding:4px 8px;
+      transition:var(--tr-fast); font-family:inherit;
+    }
+    .refresh-btn:hover { color:var(--text-primary); border-color:var(--border-focus); }
+
+    .content-area { flex:1; overflow-y:auto; padding:16px 20px; }
+    .content-area::-webkit-scrollbar { width:5px; }
+    .content-area::-webkit-scrollbar-thumb { background:var(--text-muted); border-radius:5px; }
+
+    /* ── Cards ── */
+    .card-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(320px, 1fr)); gap:12px; }
+
+    .card {
+      background:var(--glass-bg); border:1px solid var(--glass-border);
+      border-radius:var(--radius-md); padding:14px; border-left:3px solid transparent;
+      cursor:default; transition:var(--tr-smooth); animation:fade-in .2s ease-out;
+    }
+    .card:hover { border-color:rgba(255,255,255,.14); transform:translateY(-1px); box-shadow:0 4px 16px rgba(0,0,0,.3); }
+    .card-portal-open  { border-left-color:var(--success); }
+    .card-portal-closed { border-left-color:var(--danger); }
+    .card-window  { border-left-color:var(--purple); }
+    .card-client  { border-left-color:var(--accent); }
+
+    .card-title {
+      font-size:13px; font-weight:600; color:var(--text-primary);
+      display:flex; align-items:center; justify-content:space-between; gap:8px;
+      margin-bottom:8px;
+    }
+    .card-meta {
+      font-size:11px; color:var(--text-muted); margin-bottom:8px;
+      display:flex; gap:10px; flex-wrap:wrap;
+    }
+
+    /* ── Status badges ── */
+    .status-badge {
+      display:inline-flex; align-items:center; gap:4px;
+      padding:2px 8px; border-radius:12px; font-size:10px; font-weight:600;
+      text-transform:uppercase; letter-spacing:.3px;
+    }
+    .st-open   { background:var(--success-dim); color:var(--success); }
+    .st-closed { background:var(--danger-dim); color:var(--danger); }
+    .st-connected { background:var(--accent-dim); color:var(--accent); }
+
+    /* ── Buttons ── */
+    .btn {
+      background:var(--bg-elevated); border:1px solid var(--border); border-radius:var(--radius-sm);
+      color:var(--text-secondary); padding:5px 10px; font-size:11px; font-weight:500;
+      cursor:pointer; transition:var(--tr-fast); font-family:inherit;
+    }
+    .btn:hover { background:var(--bg-hover); color:var(--text-primary); border-color:rgba(255,255,255,.14); }
+    .btn:disabled { opacity:.4; cursor:not-allowed; }
+    .btn-green { border-color:rgba(104,211,145,.4); color:var(--success); }
+    .btn-green:hover { background:var(--success-dim); }
+    .btn-red { border-color:rgba(252,129,129,.4); color:var(--danger); }
+    .btn-red:hover { background:var(--danger-dim); }
+    .btn-accent { border-color:rgba(99,179,237,.4); color:var(--accent); }
+    .btn-accent:hover { background:var(--accent-dim); }
+    .btn-row { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
+
+    /* ── Plugins list ── */
+    .plugins-list { list-style:none; display:flex; flex-direction:column; gap:3px; margin-top:6px; }
+    .plugins-list li {
+      display:flex; align-items:center; justify-content:space-between;
+      background:var(--bg-base); padding:4px 8px; border-radius:var(--radius-sm); gap:6px;
+    }
+    .plugin-path {
+      overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1;
+      font-family:'Cascadia Code','Fira Code','Consolas',monospace; font-size:10px; color:var(--text-muted);
+    }
+
+    /* ── Client rows ── */
+    .client-row {
+      display:flex; align-items:center; justify-content:space-between;
+      padding:8px 12px; border-bottom:1px solid var(--border);
+      transition:var(--tr-fast); animation:fade-in .15s ease-out;
+    }
+    .client-row:last-child { border-bottom:none; }
+    .client-row:hover { background:var(--bg-hover); }
+    .client-row .name { font-weight:500; font-size:12px; color:var(--text-primary); }
+    .client-row .tools {
+      font-size:10px; color:var(--text-muted);
+      font-family:'Cascadia Code','Fira Code','Consolas',monospace;
+      max-width:60%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+    }
+
+    /* ── Notification rows ── */
+    .notif-item {
+      padding:8px 12px; border-bottom:1px solid var(--border);
+      font-size:12px; display:flex; gap:8px; align-items:flex-start;
+      transition:var(--tr-fast); animation:fade-in .15s ease-out;
+    }
+    .notif-item:last-child { border-bottom:none; }
+    .notif-item:hover { background:var(--bg-hover); }
+    .notif-time { color:var(--text-muted); white-space:nowrap; min-width:70px; font-family:'Consolas',monospace; font-size:10px; }
+    .notif-client { color:var(--accent); font-weight:500; min-width:110px; font-size:11px; }
+    .notif-msg { color:var(--text-secondary); flex:1; word-break:break-word; font-size:11px; }
+
+    /* ── Window cards ── */
+    .window-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); gap:8px; }
+    .window-card {
+      background:var(--glass-bg); border:1px solid var(--glass-border);
+      border-left:3px solid var(--purple); border-radius:var(--radius-md);
+      padding:10px; animation:fade-in .2s ease-out; transition:var(--tr-smooth);
+    }
+    .window-card:hover { border-color:rgba(255,255,255,.14); transform:translateY(-1px); box-shadow:0 4px 12px rgba(0,0,0,.25); }
+    .window-card .wname { font-weight:600; font-size:12px; margin-bottom:4px; color:var(--purple); }
+    .window-card .wtools { color:var(--text-muted); font-size:10px; font-family:'Consolas',monospace; }
+
+    /* ── Detail Drawer ── */
+    .drawer-overlay {
+      position:fixed; inset:0; background:rgba(0,0,0,.6); z-index:400;
+      display:none; backdrop-filter:blur(2px);
+    }
+    .drawer-overlay.open { display:block; }
+    .drawer {
+      position:fixed; top:0; right:0; height:100vh; width:min(520px,90vw);
+      background:var(--bg-surface); border-left:1px solid var(--border);
+      z-index:401; overflow:hidden; display:flex; flex-direction:column;
+      transform:translateX(100%); transition:transform .25s cubic-bezier(.4,0,.2,1);
+    }
+    .drawer.open { transform:translateX(0); }
+    .drawer-header {
+      padding:18px 20px; border-bottom:1px solid var(--border); flex-shrink:0;
+      display:flex; align-items:flex-start; justify-content:space-between; gap:12px;
+    }
+    .drawer-title { font-size:15px; font-weight:700; color:var(--text-primary); line-height:1.4; }
+    .drawer-close {
+      background:none; border:none; cursor:pointer; color:var(--text-muted);
+      font-size:20px; line-height:1; padding:2px; flex-shrink:0; transition:color .15s;
+    }
+    .drawer-close:hover { color:var(--text-primary); }
+    .drawer-meta {
+      padding:10px 20px; border-bottom:1px solid var(--border); flex-shrink:0;
+      display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+    }
+    .drawer-body { flex:1; overflow-y:auto; padding:20px; }
+    .drawer-body::-webkit-scrollbar { width:5px; }
+    .drawer-body::-webkit-scrollbar-thumb { background:var(--text-muted); border-radius:5px; }
+
+    .drawer-section { margin-bottom:16px; }
+    .drawer-section-title {
+      font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.5px;
+      color:var(--text-muted); margin-bottom:8px; padding-bottom:4px;
+      border-bottom:1px solid var(--border);
+    }
+
+    /* ── Empty state ── */
+    .empty-state { text-align:center; padding:30px; color:var(--text-muted); font-size:12px; font-style:italic; }
+
+    /* ── Loading ── */
+    .loading { animation:pulse 1.5s ease-in-out infinite; }
+
+    /* ── Modal ── */
+    .modal-overlay {
+      position:fixed; inset:0; background:rgba(0,0,0,.6); display:flex;
+      align-items:center; justify-content:center; z-index:500; backdrop-filter:blur(2px);
+    }
+    .modal {
+      background:var(--bg-surface); border:1px solid var(--border); border-radius:var(--radius-md);
+      padding:20px; min-width:400px; max-width:520px; animation:fade-in .2s ease-out;
+    }
+    .modal h3 { margin-bottom:12px; font-size:14px; font-weight:700; }
+    .modal input[type="text"] {
+      width:100%; padding:8px 10px; background:var(--bg-base); border:1px solid var(--border);
+      border-radius:var(--radius-sm); color:var(--text-primary); font-size:12px;
+      font-family:'Cascadia Code','Fira Code','Consolas',monospace;
+      margin-bottom:12px; outline:none; transition:var(--tr-fast);
+    }
+    .modal input[type="text"]:focus { border-color:var(--border-focus); box-shadow:0 0 0 2px var(--accent-dim); }
+    .modal .btn-row { justify-content:flex-end; }
+
+    /* ── Section container (for list views) ── */
+    .section-box {
+      background:var(--bg-surface); border:1px solid var(--border); border-radius:var(--radius-md);
+      overflow:hidden; margin-bottom:16px;
+    }
+    .section-box-header {
+      padding:10px 14px; border-bottom:1px solid var(--border);
+      display:flex; align-items:center; justify-content:space-between;
+      font-size:12px; font-weight:600;
+    }
+
+    /* ── Responsive ── */
+    @media (max-width: 900px) {
+      .sidebar { display:none; }
+      .main    { margin-left:0; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ================================================================ SIDEBAR -->
+<div class="sidebar">
+  <div class="sidebar-header">
+    <div class="sidebar-brand">
+      <div class="sidebar-logo">🚀</div>
+      <div>
+        <div class="sidebar-title">PodBay</div>
+        <div class="sidebar-subtitle">Portal Dashboard</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="sidebar-stats">
+    <div class="stat-pill">
+      <div class="stat-num" id="statApps">0</div>
+      <div class="stat-lbl">Apps</div>
+    </div>
+    <div class="stat-pill">
+      <div class="stat-num" id="statWindows">0</div>
+      <div class="stat-lbl">Windows</div>
+    </div>
+    <div class="stat-pill">
+      <div class="stat-num" id="statClients">0</div>
+      <div class="stat-lbl">Clients</div>
+    </div>
+    <div class="stat-pill">
+      <div class="stat-num" id="statNotifs">0</div>
+      <div class="stat-lbl">Notifs</div>
+    </div>
+  </div>
+
+  <div class="sidebar-search">
+    <input type="text" id="sidebarSearch" placeholder="Search..." autocomplete="off">
+  </div>
+
+  <nav class="sidebar-nav">
+    <div class="nav-section-label">Sections</div>
+    <div class="nav-item active" data-section="apps">
+      <span>📦 Electron Apps</span>
+      <span class="nav-item-count" id="navAppCount">0</span>
+    </div>
+    <div class="nav-item" data-section="windows">
+      <span>🪟 Connected Windows</span>
+      <span class="nav-item-count" id="navWindowCount">0</span>
+    </div>
+    <div class="nav-item" data-section="clients">
+      <span>🔌 Broker Clients</span>
+      <span class="nav-item-count" id="navClientCount">0</span>
+    </div>
+    <div class="nav-item" data-section="notifications">
+      <span>🔔 Notifications</span>
+      <span class="nav-item-count" id="navNotifCount">0</span>
+    </div>
+  </nav>
+
+  <div class="sidebar-footer">
+    <span class="broker-dot" id="brokerDot"></span>
+    <span id="brokerLabel">Connecting...</span>
+  </div>
+</div>
+
+<!-- ================================================================ MAIN -->
+<div class="main">
+  <div class="topbar">
+    <div class="topbar-left">
+      <span class="topbar-title" id="topbarTitle">Electron Apps</span>
+    </div>
+    <div class="topbar-right">
+      <div class="view-toggle" id="viewToggle">
+        <button class="view-btn active" data-view="grid">⬛ Grid</button>
+        <button class="view-btn" data-view="list">☰ List</button>
+      </div>
+      <button class="refresh-btn" id="refreshBtn" title="Refresh">⟳</button>
+      <span class="topbar-meta" id="topbarMeta"></span>
+    </div>
+  </div>
+
+  <div class="content-area" id="contentArea">
+    <div class="empty-state loading">Loading...</div>
+  </div>
+</div>
+
+<!-- ================================================================ DRAWER -->
+<div class="drawer-overlay" id="drawerOverlay"></div>
+<div class="drawer" id="drawer">
+  <div class="drawer-header">
+    <div class="drawer-title" id="drawerTitle"></div>
+    <button class="drawer-close" id="drawerClose">&times;</button>
+  </div>
+  <div class="drawer-meta" id="drawerMeta"></div>
+  <div class="drawer-body" id="drawerBody"></div>
+</div>
+
+<!-- ================================================================ MODAL -->
+<div class="modal-overlay" id="addPluginModal" style="display:none;">
+  <div class="modal">
+    <h3>Add Plugin</h3>
+    <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;" id="addPluginApp"></p>
+    <input type="text" id="addPluginInput" placeholder="Plugin path (e.g. d:/plugins/my-plugin.js)">
+    <div class="btn-row">
+      <button class="btn" onclick="closeAddPlugin()">Cancel</button>
+      <button class="btn btn-green" id="addPluginSubmit">Add</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  'use strict';
+
+  const BROKER_WS = 'ws://localhost:3099';
+  const BROKER_MCP = 'http://localhost:3098/mcp';
+  const CLIENT_ID = 'podbay-dashboard';
+
+  let ws = null;
+  let rpcId = 0;
+  let currentSection = 'apps';
+  let currentView = 'grid';
+  let searchQuery = '';
+
+  // ── State ──────────────────────────────────────────────────────────
+  let appData = [];
+  let clientData = [];
+  let notifData = [];
+  let addPluginAppName = null;
+
+  // ── MCP HTTP Client ────────────────────────────────────────────────
+
+  async function mcpCall(method, params) {
+    const id = ++rpcId;
+    const body = { jsonrpc: '2.0', method, params: params || {}, id };
+    const headers = { 'Content-Type': 'application/json', 'Accept': 'application/json, text/event-stream' };
+
+    const resp = await fetch(BROKER_MCP, { method: 'POST', headers, body: JSON.stringify(body) });
+    const ct = resp.headers.get('Content-Type') || '';
+
+    if (ct.includes('text/event-stream')) {
+      const text = await resp.text();
+      const lines = text.split('\n');
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          try {
+            const parsed = JSON.parse(line.slice(6));
+            if (parsed.result !== undefined) return parsed.result;
+            if (parsed.error) throw new Error(parsed.error.message || JSON.stringify(parsed.error));
+          } catch (e) { if (e.message) throw e; }
+        }
+      }
+      return null;
+    }
+
+    const json = await resp.json();
+    if (json.error) throw new Error(json.error.message || JSON.stringify(json.error));
+    return json.result;
+  }
+
+  async function callTool(name, args) {
+    const result = await mcpCall('tools/call', { name, arguments: args || {} });
+    if (result && result.content) {
+      for (const c of result.content) {
+        if (c.type === 'text') {
+          try { return JSON.parse(c.text); } catch { return c.text; }
+        }
+      }
+    }
+    return result;
+  }
+
+  // ── WebSocket ──────────────────────────────────────────────────────
+
+  function connectWs() {
+    try { if (ws) ws.close(); } catch (_) {}
+    ws = new WebSocket(BROKER_WS);
+
+    ws.onopen = () => {
+      setBrokerStatus(true);
+      ws.send(JSON.stringify({
+        type: 'register',
+        clientId: CLIENT_ID,
+        tools: [],
+        metadata: { product: 'podbay-dashboard', url: location.href }
+      }));
+      refreshAll();
+    };
+
+    ws.onclose = () => {
+      setBrokerStatus(false);
+      setTimeout(connectWs, 3000);
+    };
+
+    ws.onerror = () => {};
+
+    ws.onmessage = (e) => {
+      try {
+        const msg = JSON.parse(e.data);
+        if (msg.type === 'notification') {
+          notifData.unshift({
+            timestamp: Date.now(),
+            clientId: msg.clientId || '',
+            data: msg.data || msg.message || ''
+          });
+          updateStats();
+          if (currentSection === 'notifications') renderSection();
+        }
+        if (msg.type === 'client_connected' || msg.type === 'client_disconnected') {
+          refreshClients();
+        }
+      } catch (_) {}
+    };
+  }
+
+  function setBrokerStatus(connected) {
+    document.getElementById('brokerDot').className = 'broker-dot' + (connected ? ' connected' : '');
+    document.getElementById('brokerLabel').textContent = connected ? 'Broker connected' : 'Disconnected';
+  }
+
+  // ── Data Refresh ───────────────────────────────────────────────────
+
+  async function refreshApps() {
+    try {
+      const apps = await callTool('podbay__list');
+      if (!Array.isArray(apps)) { appData = []; updateStats(); return; }
+      const detailed = await Promise.all(apps.map(a =>
+        callTool('podbay__status', { app: a.name }).catch(() => ({
+          name: a.name, status: a.status, plugins: []
+        }))
+      ));
+      appData = detailed.map((d, i) => ({ ...apps[i], ...d }));
+    } catch (_) { appData = []; }
+    updateStats();
+  }
+
+  async function refreshClients() {
+    try {
+      const clients = await callTool('list_broker_clients');
+      clientData = Array.isArray(clients) ? clients : [];
+    } catch (_) { clientData = []; }
+    updateStats();
+  }
+
+  async function refreshNotifs() {
+    try {
+      const notifs = await callTool('get_notifications', { limit: 50 });
+      notifData = Array.isArray(notifs) ? notifs : [];
+    } catch (_) {}
+    updateStats();
+  }
+
+  async function refreshAll() {
+    await Promise.all([refreshApps(), refreshClients(), refreshNotifs()]);
+    renderSection();
+  }
+
+  // ── Stats ──────────────────────────────────────────────────────────
+
+  function updateStats() {
+    const windows = clientData.filter(c =>
+      c.clientId.startsWith('podbay-window-') || c.clientId === 'podbay-lobby'
+    );
+    document.getElementById('statApps').textContent = appData.length;
+    document.getElementById('statWindows').textContent = windows.length;
+    document.getElementById('statClients').textContent = clientData.length;
+    document.getElementById('statNotifs').textContent = notifData.length;
+    document.getElementById('navAppCount').textContent = appData.length;
+    document.getElementById('navWindowCount').textContent = windows.length;
+    document.getElementById('navClientCount').textContent = clientData.length;
+    document.getElementById('navNotifCount').textContent = notifData.length;
+  }
+
+  // ── Filtering ──────────────────────────────────────────────────────
+
+  function matchSearch(text) {
+    if (!searchQuery) return true;
+    return text.toLowerCase().includes(searchQuery.toLowerCase());
+  }
+
+  // ── Render Dispatcher ──────────────────────────────────────────────
+
+  function renderSection() {
+    const area = document.getElementById('contentArea');
+    const titles = {
+      apps: 'Electron Apps',
+      windows: 'Connected Windows',
+      clients: 'Broker Clients',
+      notifications: 'Notifications'
+    };
+    document.getElementById('topbarTitle').textContent = titles[currentSection] || '';
+
+    // Show/hide view toggle (only for apps and clients)
+    document.getElementById('viewToggle').style.display =
+      (currentSection === 'apps' || currentSection === 'clients') ? 'flex' : 'none';
+
+    switch (currentSection) {
+      case 'apps': renderApps(area); break;
+      case 'windows': renderWindows(area); break;
+      case 'clients': renderClients(area); break;
+      case 'notifications': renderNotifications(area); break;
+    }
+  }
+
+  // ── Apps ────────────────────────────────────────────────────────────
+
+  function renderApps(area) {
+    const apps = appData.filter(a => matchSearch(a.name));
+    document.getElementById('topbarMeta').textContent = apps.length + ' apps';
+
+    if (!apps.length) {
+      area.innerHTML = '<div class="empty-state">No Electron apps discovered</div>';
+      return;
+    }
+
+    if (currentView === 'grid') {
+      area.innerHTML = '<div class="card-grid">' + apps.map(app => {
+        const isOpen = app.status === 'open';
+        const plugins = Array.isArray(app.plugins) ? app.plugins : [];
+        return `<div class="card ${isOpen ? 'card-portal-open' : 'card-portal-closed'}" data-app="${esc(app.name)}">
+          <div class="card-title">
+            <span>${esc(app.name)}</span>
+            <span class="status-badge ${isOpen ? 'st-open' : 'st-closed'}">${isOpen ? '● Open' : '○ Closed'}</span>
+          </div>
+          <div class="card-meta">
+            <span>Plugins: ${plugins.length}</span>
+          </div>
+          ${plugins.length ? '<ul class="plugins-list">' + plugins.map((p, i) =>
+            `<li>
+              <span class="plugin-path" title="${esc(p)}">${esc(p)}</span>
+              <button class="btn btn-red" style="padding:2px 6px;font-size:9px;" onclick="removePlugin('${esc(app.name)}',${i+1})">✕</button>
+            </li>`
+          ).join('') + '</ul>' : '<div style="font-size:11px;color:var(--text-muted)">No plugins</div>'}
+          <div class="btn-row">
+            ${isOpen
+              ? `<button class="btn btn-red" onclick="portalClose('${esc(app.name)}')">Close Portal</button>`
+              : `<button class="btn btn-green" onclick="portalOpen('${esc(app.name)}')">Open Portal</button>`}
+            <button class="btn btn-accent" onclick="openAddPlugin('${esc(app.name)}')">+ Plugin</button>
+            <button class="btn" onclick="openAppDrawer('${esc(app.name)}')">Details</button>
+          </div>
+        </div>`;
+      }).join('') + '</div>';
+    } else {
+      area.innerHTML = '<div class="section-box"><div class="section-box-header"><span>Electron Apps</span></div>'
+        + apps.map(app => {
+          const isOpen = app.status === 'open';
+          const plugins = Array.isArray(app.plugins) ? app.plugins : [];
+          return `<div class="client-row" style="cursor:pointer" onclick="openAppDrawer('${esc(app.name)}')">
+            <span class="name">📦 ${esc(app.name)}</span>
+            <span style="display:flex;align-items:center;gap:8px;">
+              <span style="font-size:10px;color:var(--text-muted)">Plugins: ${plugins.length}</span>
+              <span class="status-badge ${isOpen ? 'st-open' : 'st-closed'}">${isOpen ? '● Open' : '○ Closed'}</span>
+            </span>
+          </div>`;
+        }).join('') + '</div>';
+    }
+  }
+
+  // ── Windows ────────────────────────────────────────────────────────
+
+  function renderWindows(area) {
+    const windows = clientData.filter(c =>
+      (c.clientId.startsWith('podbay-window-') || c.clientId === 'podbay-lobby')
+      && matchSearch(c.clientId)
+    );
+    document.getElementById('topbarMeta').textContent = windows.length + ' windows';
+
+    if (!windows.length) {
+      area.innerHTML = '<div class="empty-state">No windows connected</div>';
+      return;
+    }
+
+    area.innerHTML = '<div class="window-grid">' + windows.map(w => {
+      const isLobby = w.clientId === 'podbay-lobby';
+      return `<div class="window-card">
+        <div class="wname">${isLobby ? '🏠 ' : '🪟 '}${esc(w.clientId)}</div>
+        <div class="wtools">${(w.tools || []).join(', ')}</div>
+        <div class="btn-row" style="margin-top:6px;">
+          <button class="btn btn-accent" style="font-size:10px;padding:3px 8px;" onclick="execInWindow('${esc(w.clientId)}')">Execute JS</button>
+        </div>
+      </div>`;
+    }).join('') + '</div>';
+  }
+
+  // ── Clients ────────────────────────────────────────────────────────
+
+  function renderClients(area) {
+    const clients = clientData.filter(c => matchSearch(c.clientId));
+    document.getElementById('topbarMeta').textContent = clients.length + ' clients';
+
+    // Sort: podbay first, then podbay-windows, then others
+    const sorted = [...clients].sort((a, b) => {
+      const aw = a.clientId.startsWith('podbay') ? 0 : 1;
+      const bw = b.clientId.startsWith('podbay') ? 0 : 1;
+      if (aw !== bw) return aw - bw;
+      return a.clientId.localeCompare(b.clientId);
+    });
+
+    if (!sorted.length) {
+      area.innerHTML = '<div class="empty-state">No clients connected</div>';
+      return;
+    }
+
+    if (currentView === 'grid') {
+      area.innerHTML = '<div class="card-grid">' + sorted.map(c => {
+        const isPodWindow = c.clientId.startsWith('podbay-window-') || c.clientId === 'podbay-lobby';
+        const icon = isPodWindow ? '🪟' : (c.clientId === 'podbay' ? '🚀' : '🔌');
+        const tools = c.tools || [];
+        return `<div class="card card-client">
+          <div class="card-title">
+            <span>${icon} ${esc(c.clientId)}</span>
+            <span class="status-badge st-connected">Connected</span>
+          </div>
+          <div class="card-meta">
+            <span>Tools: ${tools.length}</span>
+          </div>
+          <div style="font-size:10px;color:var(--text-muted);font-family:monospace;word-break:break-all;">
+            ${esc(tools.join(', '))}
+          </div>
+        </div>`;
+      }).join('') + '</div>';
+    } else {
+      area.innerHTML = '<div class="section-box"><div class="section-box-header"><span>Broker Clients</span></div>'
+        + sorted.map(c => {
+          const isPodWindow = c.clientId.startsWith('podbay-window-') || c.clientId === 'podbay-lobby';
+          const icon = isPodWindow ? '🪟' : (c.clientId === 'podbay' ? '🚀' : '🔌');
+          return `<div class="client-row">
+            <span class="name">${icon} ${esc(c.clientId)}</span>
+            <span class="tools">${(c.tools || []).join(', ')}</span>
+          </div>`;
+        }).join('') + '</div>';
+    }
+  }
+
+  // ── Notifications ──────────────────────────────────────────────────
+
+  function renderNotifications(area) {
+    const notifs = notifData.filter(n =>
+      matchSearch(n.clientId || '') || matchSearch(typeof n.data === 'string' ? n.data : JSON.stringify(n.data || ''))
+    );
+    document.getElementById('topbarMeta').textContent = notifs.length + ' notifications';
+
+    if (!notifs.length) {
+      area.innerHTML = '<div class="empty-state">No notifications</div>';
+      return;
+    }
+
+    area.innerHTML = '<div class="section-box"><div class="section-box-header"><span>Recent Notifications</span></div>'
+      + notifs.slice(0, 100).map(n => {
+        const time = n.timestamp ? new Date(n.timestamp).toLocaleTimeString() : '';
+        const msg = typeof n.data === 'string' ? n.data : JSON.stringify(n.data || n.message || '');
+        return `<div class="notif-item">
+          <span class="notif-time">${esc(time)}</span>
+          <span class="notif-client">${esc(n.clientId || '')}</span>
+          <span class="notif-msg">${esc(msg)}</span>
+        </div>`;
+      }).join('') + '</div>';
+  }
+
+  // ── App Detail Drawer ──────────────────────────────────────────────
+
+  window.openAppDrawer = function(appName) {
+    const app = appData.find(a => a.name === appName);
+    if (!app) return;
+
+    const isOpen = app.status === 'open';
+    const plugins = Array.isArray(app.plugins) ? app.plugins : [];
+
+    document.getElementById('drawerTitle').textContent = app.name;
+    document.getElementById('drawerMeta').innerHTML =
+      `<span class="status-badge ${isOpen ? 'st-open' : 'st-closed'}">${isOpen ? '● Portal Open' : '○ Portal Closed'}</span>`
+      + `<span style="font-size:11px;color:var(--text-muted)">Plugins: ${plugins.length}</span>`;
+
+    document.getElementById('drawerBody').innerHTML = `
+      <div class="drawer-section">
+        <div class="drawer-section-title">Portal Control</div>
+        <div class="btn-row">
+          ${isOpen
+            ? `<button class="btn btn-red" onclick="portalClose('${esc(app.name)}');closeDrawer()">Close Portal</button>`
+            : `<button class="btn btn-green" onclick="portalOpen('${esc(app.name)}');closeDrawer()">Open Portal</button>`}
+        </div>
+      </div>
+      <div class="drawer-section">
+        <div class="drawer-section-title">Plugins</div>
+        ${plugins.length ? '<ul class="plugins-list">' + plugins.map((p, i) =>
+          `<li>
+            <span class="plugin-path" title="${esc(p)}">${esc(p)}</span>
+            <button class="btn btn-red" style="padding:2px 6px;font-size:9px;" onclick="removePlugin('${esc(app.name)}',${i+1})">✕</button>
+          </li>`
+        ).join('') + '</ul>' : '<div style="font-size:11px;color:var(--text-muted);padding:8px 0;">No plugins configured</div>'}
+        <div class="btn-row">
+          <button class="btn btn-accent" onclick="openAddPlugin('${esc(app.name)}')">+ Add Plugin</button>
+        </div>
+      </div>
+      <div class="drawer-section">
+        <div class="drawer-section-title">Connected Windows</div>
+        <div id="drawerWindows" style="font-size:11px;color:var(--text-muted);">Checking...</div>
+      </div>
+    `;
+
+    // Populate connected windows for this app
+    const appWindows = clientData.filter(c =>
+      c.clientId.startsWith('podbay-window-') || c.clientId === 'podbay-lobby'
+    );
+    const wEl = document.getElementById('drawerWindows');
+    if (appWindows.length) {
+      wEl.innerHTML = appWindows.map(w =>
+        `<div style="padding:4px 0;display:flex;align-items:center;justify-content:space-between;">
+          <span style="color:var(--purple)">${esc(w.clientId)}</span>
+          <button class="btn" style="font-size:9px;padding:2px 6px;" onclick="execInWindow('${esc(w.clientId)}')">Execute</button>
+        </div>`
+      ).join('');
+    } else {
+      wEl.textContent = 'No windows connected';
+    }
+
+    document.getElementById('drawerOverlay').classList.add('open');
+    document.getElementById('drawer').classList.add('open');
+  };
+
+  function closeDrawer() {
+    document.getElementById('drawerOverlay').classList.remove('open');
+    document.getElementById('drawer').classList.remove('open');
+  }
+  window.closeDrawer = closeDrawer;
+
+  // ── Actions ────────────────────────────────────────────────────────
+
+  window.portalOpen = async function(appName) {
+    try {
+      await callTool('podbay__open', { app: appName });
+      await refreshApps();
+      renderSection();
+    } catch (e) {
+      alert('Failed to open portal: ' + e.message);
+    }
+  };
+
+  window.portalClose = async function(appName) {
+    if (!confirm('Close portal for ' + appName + '? The app will need a restart.')) return;
+    try {
+      await callTool('podbay__close', { app: appName });
+      await refreshApps();
+      renderSection();
+    } catch (e) {
+      alert('Failed to close portal: ' + e.message);
+    }
+  };
+
+  window.removePlugin = async function(appName, index) {
+    if (!confirm('Remove plugin #' + index + ' from ' + appName + '?')) return;
+    try {
+      await callTool('podbay__plugins_remove', { app: appName, index: index });
+      await refreshApps();
+      renderSection();
+    } catch (e) {
+      alert('Failed to remove plugin: ' + e.message);
+    }
+  };
+
+  window.openAddPlugin = function(appName) {
+    addPluginAppName = appName;
+    document.getElementById('addPluginApp').textContent = 'App: ' + appName;
+    document.getElementById('addPluginInput').value = '';
+    document.getElementById('addPluginModal').style.display = 'flex';
+    document.getElementById('addPluginInput').focus();
+  };
+
+  window.closeAddPlugin = function() {
+    document.getElementById('addPluginModal').style.display = 'none';
+    addPluginAppName = null;
+  };
+
+  document.getElementById('addPluginSubmit').onclick = async function() {
+    const path = document.getElementById('addPluginInput').value.trim();
+    if (!path || !addPluginAppName) return;
+    try {
+      await callTool('podbay__plugins_add', { app: addPluginAppName, path: path });
+      closeAddPlugin();
+      await refreshApps();
+      renderSection();
+    } catch (e) {
+      alert('Failed to add plugin: ' + e.message);
+    }
+  };
+
+  document.getElementById('addPluginInput').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') document.getElementById('addPluginSubmit').click();
+    if (e.key === 'Escape') closeAddPlugin();
+  });
+
+  window.execInWindow = function(clientId) {
+    const code = prompt('JavaScript to execute in ' + clientId + ':');
+    if (!code) return;
+    callTool(clientId + '__execute_plugin', { code: code })
+      .then(r => alert('Result: ' + (typeof r === 'string' ? r : JSON.stringify(r, null, 2))))
+      .catch(e => alert('Error: ' + e.message));
+  };
+
+  // ── Helpers ────────────────────────────────────────────────────────
+
+  function esc(str) {
+    if (typeof str !== 'string') return '';
+    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+              .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  // ── Init ───────────────────────────────────────────────────────────
+
+  document.addEventListener('DOMContentLoaded', () => {
+    // Sidebar nav
+    document.querySelector('.sidebar-nav').addEventListener('click', e => {
+      const item = e.target.closest('[data-section]');
+      if (!item) return;
+      currentSection = item.dataset.section;
+      document.querySelectorAll('[data-section]').forEach(el => el.classList.remove('active'));
+      item.classList.add('active');
+      renderSection();
+    });
+
+    // View toggle
+    document.querySelectorAll('.view-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.view-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentView = btn.dataset.view;
+        renderSection();
+      });
+    });
+
+    // Search
+    document.getElementById('sidebarSearch').addEventListener('input', e => {
+      searchQuery = e.target.value.trim();
+      renderSection();
+    });
+
+    // Refresh button
+    document.getElementById('refreshBtn').addEventListener('click', () => {
+      refreshAll();
+    });
+
+    // Drawer close
+    document.getElementById('drawerClose').addEventListener('click', closeDrawer);
+    document.getElementById('drawerOverlay').addEventListener('click', closeDrawer);
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); });
+  });
+
+  // Auto-refresh every 15 seconds
+  setInterval(refreshAll, 15000);
+
+  // Start
+  connectWs();
+})();
+</script>
+</body>
+</html>
