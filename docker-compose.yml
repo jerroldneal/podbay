@@ -25,6 +25,7 @@ services:
     ports:
       - "8080:80"
     volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - ./dashboard.html:/usr/share/nginx/html/index.html:ro
       - ./pod-editor.html:/usr/share/nginx/html/pod-editor.html:ro
       - ./plugin-editor.html:/usr/share/nginx/html/plugin-editor.html:ro
