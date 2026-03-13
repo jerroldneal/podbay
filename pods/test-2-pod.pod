@@ -1,0 +1,16 @@
+{
+  "name": "test-2-pod",
+  "description": "Test pod created via Pod Editor UI",
+  "plugins": [
+    {
+      "type": "greeting",
+      "description": "Hello from test-2-pod created via Pod Editor",
+      "code": "console.log('[PodBay] Hello from test-2-pod!');"
+    },
+    {
+      "type": "logger",
+      "description": "Logs app lifecycle events to console",
+      "code": "console.log('[PodBay] Logger plugin active for test-2-pod');"
+    }
+  ]
+}

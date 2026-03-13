@@ -122,9 +122,40 @@ let currentPluginIdx = -1;
 
 async function mcpCall(tool, args = {}) {
   const res = await fetch(MCP, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ jsonrpc: '2.0', id: Date.now(), method: 'tools/call', params: { name: 'podbay-' + tool, arguments: args } })
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json, text/event-stream' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: Date.now(), method: 'tools/call', params: { name: 'podbay__' + tool, arguments: args } })
   });
+  const ct = res.headers.get('Content-Type') || '';
+  if (ct.includes('text/event-stream')) {
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop();
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          try {
+            const parsed = JSON.parse(line.slice(6));
+            if (parsed.result && parsed.result.content) {
+              const txt = parsed.result.content.find(c => c.type === 'text');
+              if (txt) {
+                const val = JSON.parse(txt.text);
+                if (val && val.error) { reader.cancel(); throw new Error(val.error); }
+                reader.cancel(); return val;
+              }
+            }
+            if (parsed.error) { reader.cancel(); throw new Error(parsed.error.message || JSON.stringify(parsed.error)); }
+          } catch (e) { if (e.message) throw e; }
+        }
+      }
+    }
+    return null;
+  }
   const j = await res.json();
   if (j.error) throw new Error(j.error.message || JSON.stringify(j.error));
   if (j.result && j.result.content) {
