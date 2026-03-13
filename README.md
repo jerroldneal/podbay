@@ -2,7 +2,9 @@
 
 > "Open the pod bay doors, HAL." — Unlike HAL, PodBay always opens the doors.
 
-Self-contained CLI that opens portals in Electron apps and manages plugins. When opened, every renderer window gets `execute_plugin` and `plugin` tools connected to the broker, plus a `require()` polyfill for loading modules at runtime.
+Self-contained CLI that manages Electron app opt-in to the MCP broker and delivers plugins. When opted-in with a **client name**, every renderer window registers on the broker using that name and exposes tools prefixed as `{name}.toolName` (e.g., `my-app.execute_plugin`).
+
+PodBay is **domain-agnostic** — it never embeds app-specific knowledge into client IDs or tool names. The caller chooses a name at opt-in time; if consumers want app metadata, they call the client's info tool.
 
 Supports three modes: interactive menu (default), scriptable CLI parameters, and MCP reverse client (publishes all operations as broker tools).
 
@@ -52,18 +54,22 @@ npm run serve                                           # ws://localhost:3099
 node reverse-client.js --url ws://myhost:3099           # custom broker
 ```
 
-Registers as `podbay` on the broker with 8 tools:
+Registers as `podbay` on the broker with tools:
 
 | Tool | Description |
 |------|-------------|
 | `list` | Discover installed Electron apps |
-| `open` | Open portal for an app |
-| `close` | Close portal for an app |
+| `open` | Open portal for an app (legacy) |
+| `close` | Close portal for an app (legacy) |
+| `opt_in` | Opt-in an app with a **required `name`** (e.g., `{app: "clubwpt-desktop", name: "cwg"}`) |
+| `opt_out` | Opt-out an app — restore original ASAR |
 | `status` | Get portal status and plugin list |
 | `plugins_list` | List configured plugins |
 | `plugins_add` | Add a plugin by path |
 | `plugins_remove` | Remove a plugin by index |
 | `plugins_set` | Replace full plugin list |
+
+The `name` parameter on `opt_in` must be lowercase alphanumeric + hyphens (`[a-z0-9-]`). This name becomes the client's broker ID and tool prefix. For example, opting in with `name: "cwg"` means the client registers as `cwg` and its tools appear as `cwg.execute_plugin` and `cwg.plugin`.
 
 ### Docker
 
@@ -85,10 +91,16 @@ Plugins are file paths stored in `podbay-plugins.json` alongside the app's `app.
 ## Programmatic
 
 ```javascript
-const { open, close, discover, readPlugins, writePlugins, resolveApp } = require('./podbay');
+const { open, close, optIn, optOut, discover, readPlugins, writePlugins, resolveApp } = require('./podbay');
 
 const apps = discover();
 const app = resolveApp(apps, 'clubwpt-desktop');  // By name or index
+
+// Opt-in with a client name (recommended)
+optIn(app.asarPath, 'cwg');    // Registers as 'cwg' on broker, tools prefixed 'cwg.'
+optOut(app.asarPath);           // Restore original ASAR
+
+// Legacy portal mode (URL-param-based client IDs)
 open(app.asarPath);    // Open portal
 close(app.asarPath);   // Close portal
 
@@ -100,26 +112,28 @@ writePlugins(app.asarPath, [...plugins, 'd:\\path\\to\\plugin.js']);
 
 ```
 podbay/
-  index.js              ← CLI entry point + plugin management + CLI params
+  index.js              ← CLI entry point + opt-in/opt-out + plugin management
   reverse-client.js     ← Reverse client — publishes tools on broker
   Dockerfile            ← Container image for reverse client
   docker-compose.yml    ← Docker orchestration with host volume mount
   lib/discover.js       ← Scan for installed Electron apps
   lib/asar.js           ← ASAR backup/extract/patch/repack/restore
-  lib/portal-payload.js ← Portal payload with require polyfill + broker tools
+  lib/system-plugin.js  ← Minimal injection client (name-based broker registration)
+  lib/portal-payload.js ← Legacy portal payload with require polyfill
+  lib/pods.js           ← Pod file CRUD and plugin resolution
 ```
 
-On **open**, the portal payload is written into the ASAR alongside WindowManager.js. A patch in WindowManager.js:
-1. Loads the portal payload via `executeJavaScript` on every `did-finish-load`
+On **opt-in** (or legacy **open**), the system plugin is written into the ASAR alongside WindowManager.js. A patch in WindowManager.js:
+1. Prepends `var __podbayName = "{name}"` and loads the system plugin via `executeJavaScript` on every `did-finish-load`
 2. Reads `podbay-plugins.json` and executes each plugin in the renderer
-3. Listens for `console-message` IPC to persist plugin changes from the renderer
+3. Loads plugins from `.pod` files in the pods directory
+4. Listens for `console-message` IPC to persist plugin changes from the renderer
 
-The payload:
-- Injects a `require()` polyfill (from `jerroldneal/require-extension`) for module loading
+The system plugin:
 - Connects to the broker at `ws://localhost:3099`
-- Registers with a client ID derived from URL params (e.g., `podbay-lobby`, `podbay-window-3`)
-- Exposes two tools: `execute_plugin` (run JS in renderer) and `plugin` (manage plugin list)
-- Exposes `window.__portal` for downstream tools to reuse the connection
+- Registers with the **client name** provided at opt-in time (injected as `__podbayName` by the ASAR patch)
+- Exposes two tools: `{name}.execute_plugin` (run JS in renderer) and `{name}.plugin` (injection status)
+- Falls back to URL-param-based IDs (`podbay-lobby`, `podbay-window-{id}`) for legacy `open` mode
 
 ## Downstream Tools
 
@@ -135,48 +149,37 @@ This walkthrough confirms PodBay works end-to-end with the ClubWPT Gold Desktop 
 - ClubWPT Gold Desktop is **closed** (not running)
 - Broker running at `ws://localhost:3099` (cnr-ws-server)
 
-### Step 1: Open the Portal
+### Step 1: Opt-In the App
 
+Via CLI:
+```bash
+node podbay open clubwpt-desktop   # Legacy open (uses URL-param client IDs)
 ```
-> node podbay
 
-  Open the Pod Bay
-
-  1. clubwpt-desktop  [closed]
-  ...
-
-Select app: 1
-
-  clubwpt-desktop — closed
-
-  1. Open
-  2. Close
-  3. Add plugin
-  4. List plugins
-  5. Remove plugin
-
-Action: 1
-[PodBay] Backing up ASAR...
-[PodBay] Extracting...
-[PodBay] Patching WindowManager...
-[PodBay] Repacking...
-[PodBay] Portal opened. Restart the app to activate.
+Or via broker tool (recommended):
+```json
+{
+  "tool": "opt_in",
+  "arguments": { "app": "clubwpt-desktop", "name": "cwg" }
+}
 ```
+
+This patches the ASAR with the system plugin configured to register as `cwg` on the broker.
 
 ### Step 2: Launch ClubWPT Gold
 
-Open the app normally. The lobby window will:
-- Load the portal payload automatically
-- Connect to the broker as `podbay-lobby`
-- Register `execute_plugin` and `plugin` tools
+Open the app normally. Every renderer window will:
+- Load the system plugin automatically
+- Connect to the broker as `cwg`
+- Register `cwg.execute_plugin` and `cwg.plugin` tools
 
 ### Step 3: Verify via Broker
 
-Use any broker client (e.g., mcp-broker, VS Code Copilot) to call the `execute_plugin` tool on `podbay-lobby`:
+Use any broker client (e.g., mcp-broker, VS Code Copilot) to call the `cwg.execute_plugin` tool on `cwg`:
 
 ```json
 {
-  "tool": "execute_plugin",
+  "tool": "cwg.execute_plugin",
   "arguments": { "code": "return document.title" }
 }
 ```

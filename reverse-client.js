@@ -11,7 +11,7 @@
  */
 
 const WebSocket = require('ws');
-const { open, close, optIn, optOut, discover, readPlugins, writePlugins, resolveApp, pods } = require('./index');
+const { optIn, optOut, normalizeName, validateName, discover, readPlugins, writePlugins, resolveApp, pods } = require('./index');
 const asar = require('./lib/asar');
 
 const TAG = '[PodBay RC]';
@@ -40,51 +40,25 @@ const tools = [
     },
   },
   {
-    name: 'open',
-    description: 'Open portal for an Electron app',
-    inputSchema: {
-      type: 'object',
-      properties: { app: { type: 'string', description: 'App name or 1-based index' } },
-      required: ['app'],
-    },
-    handler: ({ app: nameOrIndex }) => {
-      const apps = discover();
-      const app = resolveApp(apps, nameOrIndex);
-      if (!app) return { error: 'App not found: ' + nameOrIndex };
-      open(app.asarPath);
-      return { name: app.name, status: 'open' };
-    },
-  },
-  {
-    name: 'close',
-    description: 'Close portal for an Electron app',
-    inputSchema: {
-      type: 'object',
-      properties: { app: { type: 'string', description: 'App name or 1-based index' } },
-      required: ['app'],
-    },
-    handler: ({ app: nameOrIndex }) => {
-      const apps = discover();
-      const app = resolveApp(apps, nameOrIndex);
-      if (!app) return { error: 'App not found: ' + nameOrIndex };
-      close(app.asarPath);
-      return { name: app.name, status: 'closed' };
-    },
-  },
-  {
     name: 'opt_in',
-    description: 'Opt-in an Electron app — inject system plugin for broker-driven injection',
+    description: 'Opt-in an Electron app — inject system plugin for broker-driven injection. Name defaults to normalized app directory name.',
     inputSchema: {
       type: 'object',
-      properties: { app: { type: 'string', description: 'App name or 1-based index' } },
+      properties: {
+        app: { type: 'string', description: 'App name or 1-based index' },
+        name: { type: 'string', description: 'Client name for broker registration (lowercase alphanumeric + hyphens). Defaults to normalized app name.' },
+      },
       required: ['app'],
     },
-    handler: ({ app: nameOrIndex }) => {
+    handler: ({ app: nameOrIndex, name }) => {
       const apps = discover();
       const app = resolveApp(apps, nameOrIndex);
       if (!app) return { error: 'App not found: ' + nameOrIndex };
-      optIn(app.asarPath);
-      return { name: app.name, status: 'opted-in' };
+      if (!name) name = normalizeName(app.name);
+      const err = validateName(name);
+      if (err) return { error: err };
+      optIn(app.asarPath, name);
+      return { name: name, app: app.name, status: 'opted-in' };
     },
   },
   {

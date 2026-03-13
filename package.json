@@ -8,7 +8,8 @@
   },
   "scripts": {
     "start": "node index.js",
-    "serve": "node reverse-client.js"
+    "serve": "node reverse-client.js",
+    "deploy": "docker compose up --build -d"
   },
   "dependencies": {
     "ws": "^8.18.0"

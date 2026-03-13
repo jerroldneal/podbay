@@ -10,53 +10,45 @@ const pods = require('./lib/pods');
 
 const TAG = '[PodBay]';
 const WORK_DIR = path.join(__dirname, '.work');
-const PAYLOAD_PATH = path.join(__dirname, 'lib', 'portal-payload.js');
 const SYSTEM_PLUGIN_PATH = path.join(__dirname, 'lib', 'system-plugin.js');
+const REGISTRY_PATH = path.join(__dirname, '.opted-in.json');
 
 function log(...args) { console.log(TAG, ...args); }
 
+// ── Name helpers ─────────────────────────────────────────────────────────
+
 /**
- * Open the pod bay doors — backup ASAR, inject portal payload, repack.
- * @param {string} asarPath
+ * Normalize an app directory name into a valid client name.
+ * e.g. "ClubWPT Gold" → "clubwpt-gold"
  */
-function open(asarPath) {
-  if (asar.status(asarPath) === 'open') {
-    log('Already open for', asarPath);
-    return;
-  }
-
-  const payload = fs.readFileSync(PAYLOAD_PATH, 'utf8');
-  const resourcesDir = path.dirname(asarPath);
-
-  log('Backing up ASAR...');
-  asar.backup(asarPath);
-
-  log('Extracting...');
-  asar.extract(asarPath, WORK_DIR);
-
-  log('Patching WindowManager...');
-  asar.patchWindowManager(WORK_DIR, payload, resourcesDir);
-
-  log('Repacking...');
-  asar.repack(WORK_DIR, asarPath);
-
-  fs.rmSync(WORK_DIR, { recursive: true, force: true });
-  log('Portal opened. Restart the app to activate.');
+function normalizeName(raw) {
+  return raw
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    || 'app';
 }
 
-/**
- * Close the pod bay doors — restore original ASAR from backup.
- * @param {string} asarPath
- */
-function close(asarPath) {
-  if (asar.status(asarPath) === 'closed') {
-    log('Already closed for', asarPath);
-    return;
-  }
+const NAME_RE = /^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/;
 
-  log('Restoring original ASAR...');
-  asar.restore(asarPath);
-  log('Portal closed. Restart the app to deactivate.');
+/**
+ * Validate a client name: lowercase alphanumeric + hyphens, not blank.
+ */
+function validateName(name) {
+  if (!name) return 'Name cannot be blank';
+  if (!NAME_RE.test(name)) return 'Name must be lowercase letters, digits, and hyphens (no leading/trailing hyphen)';
+  return null;
+}
+
+// ── Name registry (uniqueness tracking) ──────────────────────────────────
+
+function loadRegistry() {
+  try { return JSON.parse(fs.readFileSync(REGISTRY_PATH, 'utf8')); }
+  catch (_) { return {}; }
+}
+
+function saveRegistry(reg) {
+  fs.writeFileSync(REGISTRY_PATH, JSON.stringify(reg, null, 2));
 }
 
 // ── Opt-In / Opt-Out (System Plugin model) ───────────────────────────────
@@ -66,8 +58,17 @@ function close(asarPath) {
  * The system plugin connects to the broker and requests its injection bundle
  * from PodBay, replacing the old portal-payload approach.
  * @param {string} asarPath
+ * @param {string} name - Required client name (lowercase alphanumeric + hyphens)
  */
-function optIn(asarPath) {
+function optIn(asarPath, name) {
+  const err = validateName(name);
+  if (err) throw new Error(err);
+
+  const reg = loadRegistry();
+  if (reg[name] && reg[name] !== asarPath) {
+    throw new Error(`Name "${name}" is already used by another app`);
+  }
+
   if (asar.status(asarPath) === 'open') {
     log('Already opted-in for', asarPath);
     return;
@@ -83,13 +84,16 @@ function optIn(asarPath) {
   asar.extract(asarPath, WORK_DIR);
 
   log('Patching with system plugin...');
-  asar.patchWindowManager(WORK_DIR, payload, resourcesDir);
+  asar.patchWindowManager(WORK_DIR, payload, resourcesDir, name);
 
   log('Repacking...');
   asar.repack(WORK_DIR, asarPath);
 
   fs.rmSync(WORK_DIR, { recursive: true, force: true });
-  log('Opted-in. Restart the app to activate.');
+
+  reg[name] = asarPath;
+  saveRegistry(reg);
+  log('Opted-in as', name + '. Restart the app to activate.');
 }
 
 /**
@@ -104,6 +108,12 @@ function optOut(asarPath) {
 
   log('Restoring original ASAR...');
   asar.restore(asarPath);
+
+  const reg = loadRegistry();
+  for (const [n, p] of Object.entries(reg)) {
+    if (p === asarPath) { delete reg[n]; break; }
+  }
+  saveRegistry(reg);
   log('Opted-out. Restart the app to restore original behavior.');
 }
 
@@ -221,20 +231,6 @@ function cliList() {
   console.log(JSON.stringify(result, null, 2));
 }
 
-function cliOpen(nameOrIndex) {
-  const apps = discover();
-  const app = resolveApp(apps, nameOrIndex);
-  if (!app) { log('App not found:', nameOrIndex); process.exit(1); }
-  open(app.asarPath);
-}
-
-function cliClose(nameOrIndex) {
-  const apps = discover();
-  const app = resolveApp(apps, nameOrIndex);
-  if (!app) { log('App not found:', nameOrIndex); process.exit(1); }
-  close(app.asarPath);
-}
-
 function cliStatus(nameOrIndex) {
   const apps = discover();
   const app = resolveApp(apps, nameOrIndex);
@@ -293,12 +289,27 @@ function cliPluginsSet(nameOrIndex, jsonStr) {
   log('Plugin list updated:', list.length, 'plugin(s)');
 }
 
+function cliOptIn(nameOrIndex, name) {
+  const apps = discover();
+  const app = resolveApp(apps, nameOrIndex);
+  if (!app) { log('App not found:', nameOrIndex); process.exit(1); }
+  if (!name) name = normalizeName(app.name);
+  optIn(app.asarPath, name);
+}
+
+function cliOptOut(nameOrIndex) {
+  const apps = discover();
+  const app = resolveApp(apps, nameOrIndex);
+  if (!app) { log('App not found:', nameOrIndex); process.exit(1); }
+  optOut(app.asarPath);
+}
+
 function handleCli(args) {
   const cmd = args[0];
   switch (cmd) {
     case 'list':    return cliList();
-    case 'open':    return cliOpen(args[1]);
-    case 'close':   return cliClose(args[1]);
+    case 'opt-in':  return cliOptIn(args[1], args[2]);
+    case 'opt-out': return cliOptOut(args[1]);
     case 'status':  return cliStatus(args[1]);
     case 'plugins': {
       const sub = args[1];
@@ -338,7 +349,7 @@ function handleCli(args) {
     }
     default:
       log('Unknown command:', cmd);
-      log('Usage: podbay <list|open|close|status|plugins> [args]');
+      log('Usage: podbay <list|opt-in|opt-out|status|plugins|pods> [args]');
       process.exit(1);
   }
 }
@@ -376,9 +387,10 @@ async function interactive() {
 
     const app = apps[idx];
     const current = asar.status(app.asarPath);
+    const defaultName = normalizeName(app.name);
     console.log(`\n  ${app.name} — ${current}\n`);
-    console.log('  1. Open');
-    console.log('  2. Close');
+    console.log('  1. Opt-In');
+    console.log('  2. Opt-Out');
     console.log('  3. Add plugin');
     console.log('  4. List plugins');
     console.log('  5. Remove plugin');
@@ -387,8 +399,15 @@ async function interactive() {
     const a = action.trim();
 
     switch (a) {
-      case '1': case 'open':  open(app.asarPath); break;
-      case '2': case 'close': close(app.asarPath); break;
+      case '1': case 'opt-in': {
+        const input = (await ask(rl, `  Name [${defaultName}]: `)).trim();
+        const name = input || defaultName;
+        const err = validateName(name);
+        if (err) { log(err); break; }
+        optIn(app.asarPath, name);
+        break;
+      }
+      case '2': case 'opt-out': optOut(app.asarPath); break;
       case '3': case 'add':   await pluginAdd(rl, app.asarPath); break;
       case '4': case 'list':  await pluginList(rl, app.asarPath); break;
       case '5': case 'remove': await pluginRemove(rl, app.asarPath); break;
@@ -399,7 +418,7 @@ async function interactive() {
   }
 }
 
-module.exports = { open, close, optIn, optOut, discover, readPlugins, writePlugins, pluginsPath, resolveApp, pods };
+module.exports = { optIn, optOut, normalizeName, validateName, discover, readPlugins, writePlugins, pluginsPath, resolveApp, pods };
 
 if (require.main === module) {
   const args = process.argv.slice(2);
