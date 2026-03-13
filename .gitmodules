@@ -4,3 +4,6 @@
 [submodule "ideas"]
 	path = ideas
 	url = https://github.com/jerroldneal/all-ideas.git
+[submodule "cwg-table-helper"]
+	path = cwg-table-helper
+	url = https://github.com/jerroldneal/cwg-table-helper.git

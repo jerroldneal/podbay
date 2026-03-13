@@ -1,0 +1,31 @@
+{
+  "name": "console",
+  "description": "Remote JavaScript console — eval tool, console hooks, and browser terminal UI",
+  "plugins": [
+    {
+      "type": "broker-client-sdk",
+      "file": "lib/broker-client.js",
+      "description": "Installs window.PodBayBrokerClient for plugin tool publishing"
+    },
+    {
+      "type": "bridge",
+      "file": "lib/bridge.js",
+      "description": "Installs window.PodBayBridge — broker bridge factory with addTool/notify API"
+    },
+    {
+      "type": "hook",
+      "file": "lib/hook.js",
+      "description": "Installs window.PodBayHook — generalized method interception utility"
+    },
+    {
+      "type": "identity",
+      "file": "lib/identity.js",
+      "description": "Installs window.PodBayIdentity — CWG window identity detection from URL params"
+    },
+    {
+      "type": "console-bridge",
+      "file": "lib/console-bridge.js",
+      "description": "Composes bridge + hook to provide eval tools and console notification hooks"
+    }
+  ]
+}

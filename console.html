@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PodBay Console</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#1e1e1e; color:#d4d4d4; font:14px/1.6 'Cascadia Code','Fira Code','Consolas',monospace; height:100vh; display:flex; flex-direction:column; }
+
+  /* Toolbar */
+  #toolbar { display:flex; justify-content:space-between; align-items:center; padding:6px 12px; background:#2d2d2d; border-bottom:1px solid #3c3c3c; flex-shrink:0; }
+  #toolbar .left { display:flex; align-items:center; gap:8px; }
+  .status-dot { width:8px; height:8px; border-radius:50%; background:#f44; display:inline-block; }
+  .status-dot.connected { background:#4caf50; }
+  .title { font-weight:bold; color:#66d9ef; font-size:13px; }
+  .bridge-status { font-size:11px; color:#888; }
+  #toolbar button { background:#3c3c3c; color:#d4d4d4; border:1px solid #555; padding:3px 12px; cursor:pointer; font:12px inherit; border-radius:3px; }
+  #toolbar button:hover { background:#505050; }
+
+  /* Tab bar */
+  #tabBar { display:flex; background:#252526; border-bottom:1px solid #3c3c3c; flex-shrink:0; overflow-x:auto; min-height:30px; align-items:stretch; }
+  #tabBar:empty::after { content:'No instances detected'; color:#555; font-size:11px; padding:6px 12px; font-style:italic; }
+  .tab { display:flex; align-items:center; gap:6px; padding:4px 14px; cursor:pointer; font-size:12px; color:#888; border-right:1px solid #3c3c3c; white-space:nowrap; user-select:none; }
+  .tab:hover { background:#2a2d2e; color:#ccc; }
+  .tab.active { background:#1e1e1e; color:#d4d4d4; border-bottom:2px solid #66d9ef; }
+  .tab .tab-dot { width:6px; height:6px; border-radius:50%; background:#4caf50; flex-shrink:0; }
+  .tab .tab-label { display:inline; }
+  .tab .tab-type { font-size:10px; color:#555; margin-left:2px; }
+
+  /* Output */
+  #output { flex:1; overflow-y:auto; padding:8px 12px; }
+  .line { white-space:pre-wrap; word-break:break-all; padding:1px 0; }
+  .line .ts { color:#555; font-size:11px; margin-right:8px; }
+  .line .badge { font-size:10px; padding:0 4px; border-radius:2px; margin-right:6px; font-weight:bold; }
+  .line.log .badge { background:#3c3c3c; color:#aaa; }
+  .line.warn .badge { background:#6b5b00; color:#e6db74; }
+  .line.error .badge { background:#6b1a28; color:#f92672; }
+  .line.info .badge { background:#1a3a5c; color:#66d9ef; }
+  .line.result .badge { background:#1a4a1a; color:#a6e22e; }
+  .line.input .badge { background:#1a3a5c; color:#66d9ef; }
+  .line.system { color:#555; font-style:italic; }
+  .line.log { color:#d4d4d4; }
+  .line.warn { color:#e6db74; }
+  .line.error { color:#f92672; }
+  .line.info { color:#66d9ef; }
+  .line.result { color:#a6e22e; }
+  .line.input { color:#66d9ef; }
+
+  /* Prompt */
+  .prompt-row { display:flex; align-items:center; border-top:1px solid #3c3c3c; padding:6px 12px; background:#252526; flex-shrink:0; }
+  .prompt-row .chevron { color:#66d9ef; margin-right:8px; font-weight:bold; }
+  #cmdInput { flex:1; background:transparent; border:none; outline:none; color:#d4d4d4; font:14px inherit; line-height:1.6; }
+  #cmdInput::placeholder { color:#555; }
+</style>
+</head>
+<body>
+
+<div id="toolbar">
+  <div class="left">
+    <span class="status-dot" id="statusDot"></span>
+    <span class="title">PodBay Console</span>
+    <span class="bridge-status" id="bridgeStatus">connecting...</span>
+  </div>
+  <div>
+    <button onclick="clearOutput()">Clear</button>
+  </div>
+</div>
+
+<div id="tabBar"></div>
+
+<div id="output"></div>
+
+<div class="prompt-row">
+  <span class="chevron">&gt;</span>
+  <input id="cmdInput" autofocus placeholder="Type JavaScript and press Enter...">
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var BROKER_MCP = 'http://localhost:3098/mcp';
+  var BROKER_WS  = 'ws://localhost:3099';
+  var CLIENT_ID  = 'remote-console';
+
+  var output   = document.getElementById('output');
+  var cmdInput = document.getElementById('cmdInput');
+  var statusDot = document.getElementById('statusDot');
+  var bridgeStatus = document.getElementById('bridgeStatus');
+  var tabBar   = document.getElementById('tabBar');
+  var ws = null;
+  var rpcId = 0;
+  var history = [];
+  var histIdx = -1;
+
+  // ── Instance management ────────────────────────────────────────────
+
+  var instances = {};       // clientId → { lines: [{level,text}], lastNotifTs, el: tabElement }
+  var activeId  = null;     // currently selected clientId
+
+  function getInstance(clientId) {
+    if (!instances[clientId]) {
+      instances[clientId] = {
+        lines: [],
+        lastNotifTs: new Date().toISOString()
+      };
+    }
+    return instances[clientId];
+  }
+
+  function selectInstance(clientId) {
+    activeId = clientId;
+    renderTabs();
+    renderOutput();
+    cmdInput.focus();
+  }
+
+  // ── Tab rendering ──────────────────────────────────────────────────
+
+  function renderTabs() {
+    tabBar.innerHTML = '';
+    var ids = Object.keys(instances).sort();
+    for (var i = 0; i < ids.length; i++) {
+      var cid = ids[i];
+      var tab = document.createElement('div');
+      tab.className = 'tab' + (cid === activeId ? ' active' : '');
+      tab.dataset.id = cid;
+
+      var dot = document.createElement('span');
+      dot.className = 'tab-dot';
+      tab.appendChild(dot);
+
+      var label = document.createElement('span');
+      label.className = 'tab-label';
+      label.textContent = formatTabLabel(cid);
+      tab.appendChild(label);
+
+      tab.addEventListener('click', (function (id) {
+        return function () { selectInstance(id); };
+      })(cid));
+
+      tabBar.appendChild(tab);
+    }
+  }
+
+  function formatTabLabel(clientId) {
+    if (clientId === 'cwg-lobby') return 'Lobby';
+    if (clientId.indexOf('cwg-table-') === 0) return 'Table ' + clientId.slice(10);
+    if (clientId.indexOf('cwg-window-') === 0) return 'Window ' + clientId.slice(11);
+    if (clientId.indexOf('cwg-') === 0) return clientId.slice(4);
+    return clientId;
+  }
+
+  // ── Output rendering ──────────────────────────────────────────────
+
+  function renderOutput() {
+    output.innerHTML = '';
+    if (!activeId || !instances[activeId]) {
+      addLineRaw('system', 'Select an instance tab above.');
+      return;
+    }
+    var lines = instances[activeId].lines;
+    for (var i = 0; i < lines.length; i++) {
+      addLineRaw(lines[i].level, lines[i].text);
+    }
+    output.scrollTop = output.scrollHeight;
+  }
+
+  function addLineRaw(level, text) {
+    var div = document.createElement('div');
+    div.className = 'line ' + level;
+
+    if (level !== 'system') {
+      var ts = document.createElement('span');
+      ts.className = 'ts';
+      ts.textContent = new Date().toLocaleTimeString();
+      div.appendChild(ts);
+
+      var badge = document.createElement('span');
+      badge.className = 'badge';
+      badge.textContent = level.toUpperCase();
+      div.appendChild(badge);
+    }
+
+    var content = document.createElement('span');
+    content.textContent = text;
+    div.appendChild(content);
+    output.appendChild(div);
+  }
+
+  function addLine(clientId, level, text) {
+    var inst = getInstance(clientId);
+    inst.lines.push({ level: level, text: text });
+    // Keep max 500 lines per instance
+    if (inst.lines.length > 500) inst.lines.splice(0, inst.lines.length - 500);
+
+    if (clientId === activeId) {
+      addLineRaw(level, text);
+      output.scrollTop = output.scrollHeight;
+    }
+  }
+
+  function addSystemLine(text) {
+    // System message shown on current output only (not stored per-instance)
+    addLineRaw('system', text);
+  }
+
+  function clearOutput() {
+    if (activeId && instances[activeId]) {
+      instances[activeId].lines = [];
+    }
+    output.innerHTML = '';
+    addLineRaw('system', 'Console cleared.');
+  }
+  window.clearOutput = clearOutput;
+
+  // ── MCP HTTP Client ────────────────────────────────────────────────
+
+  async function mcpCall(method, params) {
+    var id = ++rpcId;
+    var body = { jsonrpc: '2.0', method: method, params: params || {}, id: id };
+    var headers = { 'Content-Type': 'application/json', 'Accept': 'application/json, text/event-stream' };
+
+    var resp = await fetch(BROKER_MCP, { method: 'POST', headers: headers, body: JSON.stringify(body) });
+    var ct = resp.headers.get('Content-Type') || '';
+
+    if (ct.indexOf('text/event-stream') >= 0) {
+      var reader = resp.body.getReader();
+      var decoder = new TextDecoder();
+      var buffer = '';
+      while (true) {
+        var chunk = await reader.read();
+        if (chunk.done) break;
+        buffer += decoder.decode(chunk.value, { stream: true });
+        var lines = buffer.split('\n');
+        buffer = lines.pop();
+        for (var i = 0; i < lines.length; i++) {
+          if (lines[i].indexOf('data: ') === 0) {
+            try {
+              var parsed = JSON.parse(lines[i].slice(6));
+              if (parsed.result !== undefined) { reader.cancel(); return parsed.result; }
+              if (parsed.error) { reader.cancel(); throw new Error(parsed.error.message || JSON.stringify(parsed.error)); }
+            } catch (e) { if (e.message) throw e; }
+          }
+        }
+      }
+      return null;
+    }
+
+    var json = await resp.json();
+    if (json.error) throw new Error(json.error.message || JSON.stringify(json.error));
+    return json.result;
+  }
+
+  async function callTool(name, args) {
+    var result = await mcpCall('tools/call', { name: name, arguments: args || {} });
+    if (result && result.content) {
+      for (var i = 0; i < result.content.length; i++) {
+        var c = result.content[i];
+        if (c.type === 'text') {
+          try { return JSON.parse(c.text); } catch (_) { return c.text; }
+        }
+      }
+    }
+    return result;
+  }
+
+  // ── Eval command (scoped to active instance) ───────────────────────
+
+  async function evalCommand(code) {
+    if (!activeId) {
+      addLineRaw('error', 'No instance selected. Select a tab first.');
+      return;
+    }
+
+    addLine(activeId, 'input', '> ' + code);
+
+    try {
+      var toolName = activeId + '__eval';
+      var result = await callTool(toolName, { code: code });
+
+      if (result && result.success) {
+        addLine(activeId, 'result', '← ' + result.result);
+      } else if (result && result.error) {
+        addLine(activeId, 'error', '✗ ' + result.error);
+        if (result.stack) addLine(activeId, 'error', result.stack);
+      } else {
+        addLine(activeId, 'result', '← ' + JSON.stringify(result));
+      }
+    } catch (e) {
+      addLine(activeId, 'error', '✗ ' + e.message);
+    }
+  }
+
+  // ── Instance discovery ─────────────────────────────────────────────
+
+  async function discoverInstances() {
+    try {
+      var clients = await callTool('list_broker_clients');
+      if (!Array.isArray(clients)) return;
+
+      var found = {};
+      for (var i = 0; i < clients.length; i++) {
+        var c = clients[i];
+        var cid = c.clientId || c;
+        // Include clients that have an eval tool (registered via console-bridge)
+        if (cid === CLIENT_ID || cid === 'podbay') continue;
+        // Check if client has eval tool by checking tool list
+        if (c.tools && Array.isArray(c.tools)) {
+          var hasEval = c.tools.some(function (t) { return t === 'eval' || (t && t.name === 'eval'); });
+          if (hasEval) found[cid] = true;
+        } else {
+          // If no tool info, include cwg-* clients as candidates
+          if (cid.indexOf('cwg-') === 0) found[cid] = true;
+        }
+      }
+
+      // Add new instances
+      var foundKeys = Object.keys(found);
+      for (var j = 0; j < foundKeys.length; j++) {
+        if (!instances[foundKeys[j]]) {
+          getInstance(foundKeys[j]);
+        }
+      }
+
+      // Remove stale instances
+      var existing = Object.keys(instances);
+      for (var k = 0; k < existing.length; k++) {
+        if (!found[existing[k]]) {
+          delete instances[existing[k]];
+          if (activeId === existing[k]) activeId = null;
+        }
+      }
+
+      // Auto-select first if none selected
+      var keys = Object.keys(instances);
+      if (!activeId && keys.length > 0) {
+        activeId = keys.sort()[0];
+      }
+
+      renderTabs();
+      updateBridgeStatus();
+    } catch (_) {}
+  }
+
+  // ── WebSocket (notifications + live discovery) ─────────────────────
+
+  function connectWs() {
+    try { if (ws) ws.close(); } catch (_) {}
+    ws = new WebSocket(BROKER_WS);
+
+    ws.onopen = function () {
+      statusDot.className = 'status-dot connected';
+      ws.send(JSON.stringify({
+        type: 'register',
+        clientId: CLIENT_ID,
+        tools: [],
+        metadata: { product: 'remote-console' }
+      }));
+      addSystemLine('Connected to broker.');
+      discoverInstances();
+    };
+
+    ws.onclose = function () {
+      statusDot.className = 'status-dot';
+      updateBridgeStatus();
+      setTimeout(connectWs, 3000);
+    };
+
+    ws.onerror = function () {};
+
+    ws.onmessage = function (e) {
+      try {
+        var msg = JSON.parse(e.data);
+
+        // Console notifications from any bridge instance
+        if (msg.type === 'notification') {
+          var d = msg.data || {};
+          if (d.method === 'console' && d.args && d.clientId) {
+            addLine(d.clientId, d.level || 'log', d.args.join(' '));
+            return;
+          }
+        }
+
+        // Detect new clients connecting — re-discover
+        if (msg.type === 'client_connected' || msg.type === 'client_disconnected') {
+          discoverInstances();
+        }
+      } catch (_) {}
+    };
+  }
+
+  function updateBridgeStatus() {
+    var count = Object.keys(instances).length;
+    if (count > 0) {
+      bridgeStatus.textContent = count + ' instance' + (count > 1 ? 's' : '');
+      bridgeStatus.style.color = '#4caf50';
+      startNotifPoller();
+    } else {
+      bridgeStatus.textContent = 'no instances';
+      bridgeStatus.style.color = '#f44';
+      stopNotifPoller();
+    }
+  }
+
+  // ── Input handling ─────────────────────────────────────────────────
+
+  cmdInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && cmdInput.value.trim()) {
+      var code = cmdInput.value;
+      history.push(code);
+      histIdx = history.length;
+      cmdInput.value = '';
+      evalCommand(code);
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (histIdx > 0) {
+        histIdx--;
+        cmdInput.value = history[histIdx];
+      }
+    }
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (histIdx < history.length - 1) {
+        histIdx++;
+        cmdInput.value = history[histIdx];
+      } else {
+        histIdx = history.length;
+        cmdInput.value = '';
+      }
+    }
+    // Ctrl+L to clear
+    if (e.key === 'l' && e.ctrlKey) {
+      e.preventDefault();
+      clearOutput();
+    }
+  });
+
+  // Focus input when clicking output area
+  output.addEventListener('click', function () { cmdInput.focus(); });
+
+  // ── Notification polling (all instances) ──────────────────────────
+
+  var pollTimer = null;
+
+  function startNotifPoller() {
+    if (pollTimer) return;
+    pollTimer = setInterval(pollAllNotifications, 1000);
+  }
+
+  function stopNotifPoller() {
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  }
+
+  async function pollAllNotifications() {
+    var ids = Object.keys(instances);
+    for (var i = 0; i < ids.length; i++) {
+      await pollNotificationsFor(ids[i]);
+    }
+  }
+
+  async function pollNotificationsFor(clientId) {
+    var inst = instances[clientId];
+    if (!inst) return;
+    try {
+      var notifs = await callTool('get_notifications', { clientId: clientId, limit: 20 });
+      if (!Array.isArray(notifs)) return;
+      var newTs = inst.lastNotifTs;
+      for (var i = 0; i < notifs.length; i++) {
+        var n = notifs[i];
+        if (n.timestamp > inst.lastNotifTs && n.event && n.event.method === 'console') {
+          addLine(clientId, n.event.level || 'log', (n.event.args || []).join(' '));
+          if (n.timestamp > newTs) newTs = n.timestamp;
+        }
+      }
+      inst.lastNotifTs = newTs;
+    } catch (_) {}
+  }
+
+  // ── Periodic discovery ─────────────────────────────────────────────
+
+  setInterval(discoverInstances, 5000);
+
+  // ── Start ──────────────────────────────────────────────────────────
+
+  addSystemLine('PodBay Remote Console — connecting to broker...');
+  connectWs();
+})();
+</script>
+</body>
+</html>
