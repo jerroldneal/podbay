@@ -1470,10 +1470,7 @@
     });
   });
 
-  // Auto-refresh every 15 seconds
-  setInterval(refreshAll, 15000);
-
-  // Start
+  // Start — data refreshes via WebSocket events + manual refresh button only
   connectWs();
 })();
 </script>
