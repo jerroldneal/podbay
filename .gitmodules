@@ -4,3 +4,6 @@
 [submodule "ideas"]
 	path = ideas
 	url = https://github.com/jerroldneal/all-ideas.git
+[submodule "smart-compaction"]
+	path = smart-compaction
+	url = https://github.com/jerroldneal/smart-compaction.git
