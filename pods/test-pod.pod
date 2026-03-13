@@ -1,0 +1,11 @@
+{
+  "name": "test-pod",
+  "description": "Test pod for verifying pod management in the dashboard",
+  "plugins": [
+    {
+      "type": "greeting",
+      "code": "console.log('[PodBay] Hello from test-pod!');",
+      "description": "Logs a test greeting to the console"
+    }
+  ]
+}
