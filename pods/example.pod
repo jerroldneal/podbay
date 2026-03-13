@@ -1,11 +1,16 @@
 {
   "name": "example",
-  "description": "Example pod with a hello-world plugin",
+  "description": "Example pod demonstrating broker client SDK usage",
   "plugins": [
     {
+      "type": "broker-client-sdk",
+      "file": "lib/broker-client.js",
+      "description": "Installs window.PodBayBrokerClient for plugin tool publishing"
+    },
+    {
       "type": "greeting",
-      "code": "console.log('[PodBay] Hello from example pod!');",
-      "description": "Logs a greeting to the console"
+      "code": "(function(){var client=new window.PodBayBrokerClient({clientId:'example-pod',tools:[{name:'greet',description:'Returns a greeting message',inputSchema:{type:'object',properties:{name:{type:'string',description:'Name to greet'}},required:['name']},handler:function(args){var msg='Hello, '+(args.name||'World')+'! Greetings from PodBay example pod.';console.log('[PodBay] '+msg);return{greeting:msg};}}]});client.connect();console.log('[PodBay] Example pod greeting tool registered with broker');})()",
+      "description": "Registers a greeting tool with the MCP broker via the SDK"
     }
   ]
 }

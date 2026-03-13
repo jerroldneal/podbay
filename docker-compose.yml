@@ -16,6 +16,8 @@ services:
       - "${LOCALAPPDATA}/Programs:/host/programs:rw"
       # Mount pods directory so saves persist on the host
       - ./pods:/app/pods:rw
+      # Mount registry so opt-in state survives rebuilds
+      - ./.opted-in.json:/app/.opted-in.json:rw
     network_mode: bridge
 
   dashboard:

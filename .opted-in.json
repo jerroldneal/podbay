@@ -1,6 +1,8 @@
 {
-  "cwg": {
-    "asarPath": "C:\\Users\\bitcoin_core\\AppData\\Local\\Programs\\clubwpt-desktop\\resources\\app.asar",
-    "pods": []
+  "clubwpt-desktop": {
+    "asarPath": "/host/programs/clubwpt-desktop/resources/app.asar",
+    "pods": [
+      "example.pod"
+    ]
   }
 }
