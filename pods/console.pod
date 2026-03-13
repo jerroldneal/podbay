@@ -23,6 +23,11 @@
       "description": "Installs window.PodBayIdentity — CWG window identity detection from URL params"
     },
     {
+      "type": "table-watcher",
+      "file": "lib/table-watcher.js",
+      "description": "Installs window.PodBayTableWatcher — Cocos2d scene graph poker table state extraction (tables only)"
+    },
+    {
       "type": "console-bridge",
       "file": "lib/console-bridge.js",
       "description": "Composes bridge + hook to provide eval tools and console notification hooks"
