@@ -133,8 +133,17 @@ function toast(msg) {
   setTimeout(() => el.classList.remove('show'), 2000);
 }
 
-async function loadPods() {
-  pods = await mcpCall('pods_list') || [];
+async function loadPods(retries = 2) {
+  try {
+    pods = await mcpCall('pods_list') || [];
+  } catch (e) {
+    console.error('loadPods failed:', e.message);
+    if (retries > 0) {
+      await new Promise(r => setTimeout(r, 1000));
+      return loadPods(retries - 1);
+    }
+    pods = [];
+  }
   renderList();
 }
 
