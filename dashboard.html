@@ -192,10 +192,16 @@
     .btn:hover { background:var(--bg-hover); color:var(--text-primary); border-color:rgba(255,255,255,.14); }
     .btn:disabled { opacity:.4; cursor:not-allowed; pointer-events:none; }
     .btn .spinner { display:inline-block; width:12px; height:12px; border:2px solid currentColor; border-top-color:transparent; border-radius:50%; animation:spin .6s linear infinite; vertical-align:middle; margin-right:4px; }
-    .card.card-busy { opacity:.85; pointer-events:none; position:relative; }
-    .card.card-busy::after { content:''; position:absolute; bottom:0; left:0; height:3px; background:var(--accent); animation:progress-indeterminate 1.8s ease-in-out infinite; border-radius:0 0 var(--radius-md) var(--radius-md); }
-    .opt-status-msg { font-size:11px; color:var(--warning); font-weight:500; display:flex; align-items:center; gap:6px; margin-top:6px; animation:pulse 1.5s ease-in-out infinite; }
+    .card.card-busy { opacity:.85; pointer-events:none; position:relative; overflow:hidden; }
+    .card.card-busy .progress-bar { position:absolute; bottom:0; left:0; height:3px; background:var(--accent); border-radius:0 0 var(--radius-md) var(--radius-md); transition:width .4s ease; }
+    .opt-status-msg { font-size:11px; color:var(--warning); font-weight:500; display:flex; align-items:center; gap:6px; margin-top:6px; }
     .opt-status-msg .spinner { width:14px; height:14px; border:2px solid var(--warning); border-top-color:transparent; border-radius:50%; animation:spin .6s linear infinite; }
+    .step-label { font-size:10px; color:var(--text-muted); margin-left:4px; text-transform:capitalize; }
+    .toast-container { position:fixed; bottom:20px; right:20px; z-index:9999; display:flex; flex-direction:column; gap:8px; }
+    .toast { background:var(--bg-elevated); border:1px solid var(--border); border-radius:var(--radius-md); padding:10px 16px; font-size:12px; color:var(--text-primary); box-shadow:0 4px 12px rgba(0,0,0,.4); animation:slideIn .3s ease; }
+    .toast.toast-success { border-color:var(--success); }
+    .toast.toast-error { border-color:var(--danger); }
+    @keyframes slideIn { from { transform:translateX(100%); opacity:0; } to { transform:translateX(0); opacity:1; } }
     .btn-green { border-color:rgba(104,211,145,.4); color:var(--success); }
     .btn-green:hover { background:var(--success-dim); }
     .btn-red { border-color:rgba(252,129,129,.4); color:var(--danger); }
@@ -203,6 +209,87 @@
     .btn-accent { border-color:rgba(99,179,237,.4); color:var(--accent); }
     .btn-accent:hover { background:var(--accent-dim); }
     .btn-row { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
+
+    /* ── Card header (info display + details button) ── */
+    .card-header {
+      display:flex; align-items:center; gap:8px; margin-bottom:8px;
+    }
+    .card-info {
+      flex:1; min-width:0; display:flex; flex-direction:column; gap:2px;
+    }
+    .card-app-name {
+      font-size:13px; font-weight:600; color:var(--text-primary);
+      overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+      display:flex; align-items:center; gap:6px;
+    }
+    .card-app-status {
+      display:inline-flex; align-items:center; gap:4px;
+      font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.3px;
+    }
+    .card-app-status.open { color:var(--success); }
+    .card-app-status.closed { color:var(--danger); }
+    .card-app-status.busy { color:var(--warning); }
+    .card-details-btn {
+      flex-shrink:0; background:var(--bg-elevated); border:1px solid var(--border);
+      border-radius:var(--radius-sm); color:var(--text-muted); cursor:pointer;
+      font-size:16px; padding:6px 8px; line-height:1; transition:var(--tr-fast); font-family:inherit;
+    }
+    .card-details-btn:hover { background:var(--bg-hover); color:var(--text-primary); border-color:rgba(255,255,255,.14); }
+    .card-details-btn:disabled { opacity:.4; cursor:not-allowed; pointer-events:none; }
+
+    /* ── Drawer tabs ── */
+    .drawer-tabs {
+      display:flex; border-bottom:1px solid var(--border); flex-shrink:0;
+    }
+    .drawer-tab {
+      flex:1; padding:10px 14px; text-align:center; font-size:11px; font-weight:600;
+      color:var(--text-muted); cursor:pointer; border-bottom:2px solid transparent;
+      transition:var(--tr-fast); background:none; border-top:none; border-left:none; border-right:none;
+      font-family:inherit; text-transform:uppercase; letter-spacing:.3px;
+    }
+    .drawer-tab:hover { color:var(--text-secondary); background:var(--bg-hover); }
+    .drawer-tab.active { color:var(--accent); border-bottom-color:var(--accent); }
+    .drawer-tab-content { display:none; }
+    .drawer-tab-content.active { display:block; }
+
+    /* ── Drawer footer (OK/Cancel) ── */
+    .drawer-footer {
+      padding:12px 20px; border-top:1px solid var(--border); flex-shrink:0;
+      display:flex; align-items:center; justify-content:flex-end; gap:8px;
+    }
+
+    /* ── Confirm modal (cancel changes warning) ── */
+    .confirm-overlay {
+      position:fixed; inset:0; background:rgba(0,0,0,.7); display:none;
+      align-items:center; justify-content:center; z-index:600; backdrop-filter:blur(2px);
+    }
+    .confirm-overlay.open { display:flex; }
+    .confirm-box {
+      background:var(--bg-surface); border:1px solid var(--border); border-radius:var(--radius-md);
+      padding:24px; min-width:340px; max-width:420px; animation:fade-in .15s ease-out;
+    }
+    .confirm-box h4 { font-size:14px; font-weight:700; color:var(--text-primary); margin-bottom:10px; }
+    .confirm-box p { font-size:12px; color:var(--text-secondary); margin-bottom:16px; line-height:1.5; }
+    .confirm-box .btn-row { justify-content:flex-end; }
+
+    /* ── Shared field styles ── */
+    .panel-field { margin-bottom:10px; }
+    .panel-label { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.5px; color:var(--text-muted); margin-bottom:3px; }
+    .panel-value { font-size:12px; color:var(--text-primary); word-break:break-all; font-family:'Cascadia Code','Fira Code','Consolas',monospace; }
+    .panel-divider { border:none; border-top:1px solid var(--border); margin:14px 0; }
+
+    /* ── Pods expander ── */
+    .pods-toggle { display:flex; align-items:center; gap:6px; cursor:pointer; font-size:11px; color:var(--text-secondary); margin-top:8px; user-select:none; }
+    .pods-toggle:hover { color:var(--text-primary); }
+    .pods-toggle .chevron { transition:transform .2s ease; display:inline-block; font-size:9px; }
+    .pods-toggle .chevron.open { transform:rotate(90deg); }
+    .pods-section { margin-top:6px; display:flex; flex-direction:column; gap:4px; }
+    .pod-row { display:flex; align-items:center; gap:6px; padding:4px 8px; background:var(--bg-base); border-radius:var(--radius-sm); font-size:11px; }
+    .pod-row .pod-name { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text-secondary); }
+    .pod-row .pod-name.assigned { color:var(--purple); font-weight:500; }
+    .pod-row .pod-order-btns { display:flex; gap:2px; }
+    .pod-row .pod-order-btns button { padding:1px 5px; font-size:9px; line-height:1; }
+    .pod-row .pod-assign-btn { padding:2px 6px; font-size:9px; }
 
     /* ── Plugins list ── */
     .plugins-list { list-style:none; display:flex; flex-direction:column; gap:3px; margin-top:6px; }
@@ -440,18 +527,19 @@
   <div class="drawer-body" id="drawerBody"></div>
 </div>
 
-<!-- ================================================================ MODAL -->
-<div class="modal-overlay" id="addPluginModal" style="display:none;">
-  <div class="modal">
-    <h3>Add Plugin</h3>
-    <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;" id="addPluginApp"></p>
-    <input type="text" id="addPluginInput" placeholder="Plugin path (e.g. d:/plugins/my-plugin.js)">
+<!-- =========================================================== CONFIRM MODAL -->
+<div class="confirm-overlay" id="confirmOverlay">
+  <div class="confirm-box">
+    <h4>Unsaved Changes</h4>
+    <p>You have unsaved changes. If you cancel now, your changes will be lost.</p>
     <div class="btn-row">
-      <button class="btn" onclick="closeAddPlugin()">Cancel</button>
-      <button class="btn btn-green" id="addPluginSubmit">Add</button>
+      <button class="btn" onclick="confirmReturn()">Cancel Changes</button>
+      <button class="btn btn-red" onclick="confirmDiscard()">Discard Changes</button>
     </div>
   </div>
 </div>
+
+
 
 <script>
 (function() {
@@ -471,9 +559,30 @@
   let appData = [];
   let clientData = [];
   let notifData = [];
-  let addPluginAppName = null;
+
   let busyApp = null;       // name of app currently opting in/out
   let busyAction = null;    // 'opt-in' | 'opt-out'
+  let busyProgress = 0;     // current step number
+  let busyTotal = 0;        // total steps
+  let busyStep = '';        // current step label
+  let expandedPodsApp = null; // legacy — kept for reference but unused
+
+  // ── Toast notifications ────────────────────────────────────────────
+
+  function showToast(message, type) {
+    let container = document.getElementById('toastContainer');
+    if (!container) {
+      container = document.createElement('div');
+      container.id = 'toastContainer';
+      container.className = 'toast-container';
+      document.body.appendChild(container);
+    }
+    const el = document.createElement('div');
+    el.className = 'toast' + (type ? ' toast-' + type : '');
+    el.textContent = message;
+    container.appendChild(el);
+    setTimeout(() => { el.remove(); }, 4000);
+  }
 
   // ── MCP HTTP Client ────────────────────────────────────────────────
 
@@ -486,15 +595,24 @@
     const ct = resp.headers.get('Content-Type') || '';
 
     if (ct.includes('text/event-stream')) {
-      const text = await resp.text();
-      const lines = text.split('\n');
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          try {
-            const parsed = JSON.parse(line.slice(6));
-            if (parsed.result !== undefined) return parsed.result;
-            if (parsed.error) throw new Error(parsed.error.message || JSON.stringify(parsed.error));
-          } catch (e) { if (e.message) throw e; }
+      // Stream SSE events incrementally — don't wait for stream to close
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop(); // keep incomplete line in buffer
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const parsed = JSON.parse(line.slice(6));
+              if (parsed.result !== undefined) { reader.cancel(); return parsed.result; }
+              if (parsed.error) { reader.cancel(); throw new Error(parsed.error.message || JSON.stringify(parsed.error)); }
+            } catch (e) { if (e.message) throw e; }
+          }
         }
       }
       return null;
@@ -545,10 +663,19 @@
       try {
         const msg = JSON.parse(e.data);
         if (msg.type === 'notification') {
+          const d = msg.data || msg.message || '';
+          // MCP-standard notifications/progress
+          if (d && d.method === 'notifications/progress' && d.params) {
+            const p = d.params;
+            busyProgress = p.progress || 0;
+            busyTotal = p.total || 0;
+            busyStep = p.message || '';
+            if (currentSection === 'apps') renderSection();
+          }
           notifData.unshift({
             timestamp: Date.now(),
             clientId: msg.clientId || '',
-            data: msg.data || msg.message || ''
+            data: d
           });
           updateStats();
           if (currentSection === 'notifications') renderSection();
@@ -669,45 +796,39 @@
     if (currentView === 'grid') {
       area.innerHTML = '<div class="card-grid">' + apps.map(app => {
         const isOpen = app.status === 'open';
-        const plugins = Array.isArray(app.plugins) ? app.plugins : [];
+        const assignedPods = Array.isArray(app.pods) ? app.pods : [];
         const isBusy = busyApp === app.name;
         const busyLabel = busyAction === 'opt-in' ? 'Opting In…' : 'Opting Out…';
         return `<div class="card ${isOpen ? 'card-portal-open' : 'card-portal-closed'}${isBusy ? ' card-busy' : ''}" data-app="${esc(app.name)}">
-          <div class="card-title">
-            <span>${esc(app.name)}</span>
-            <span class="status-badge ${isOpen ? 'st-open' : 'st-closed'}">${isBusy ? '⏳ ' + busyLabel : (isOpen ? '● Opted-In' : '○ Opted-Out')}</span>
+          <div class="card-header">
+            <div class="card-info">
+              <div class="card-app-name">📦 ${esc(app.registeredName || app.name)}</div>
+              <div class="card-app-status ${isBusy ? 'busy' : (isOpen ? 'open' : 'closed')}">
+                ${isBusy ? '<span class="spinner"></span>' + busyLabel : (isOpen ? '● Opted-In' : '○ Opted-Out')}
+              </div>
+            </div>
+            <button class="card-details-btn" onclick="openAppDrawer('${esc(app.name)}')"${isBusy ? ' disabled' : ''} title="Details">⋮</button>
           </div>
           <div class="card-meta">
-            <span>Plugins: ${plugins.length}</span>
+            <span>Pods: ${assignedPods.length}</span>
+            ${app.registeredName ? '<span style="color:var(--accent)">⚡ ' + esc(app.registeredName) + '</span>' : ''}
           </div>
-          ${plugins.length ? '<ul class="plugins-list">' + plugins.map((p, i) =>
-            `<li>
-              <span class="plugin-path" title="${esc(p)}">${esc(p)}</span>
-              <button class="btn btn-red" style="padding:2px 6px;font-size:9px;" onclick="removePlugin('${esc(app.name)}',${i+1})"${isBusy ? ' disabled' : ''}>✕</button>
-            </li>`
-          ).join('') + '</ul>' : '<div style="font-size:11px;color:var(--text-muted)">No plugins</div>'}
-          ${isBusy ? `<div class="opt-status-msg"><span class="spinner"></span>${busyLabel} — this may take up to a minute…</div>` : ''}
-          <div class="btn-row">
-            ${isOpen
-              ? `<button class="btn btn-red" onclick="portalClose('${esc(app.name)}')"${busyApp ? ' disabled' : ''}>${isBusy ? '<span class="spinner"></span>Opting Out…' : 'Opt-Out'}</button>`
-              : `<button class="btn btn-green" onclick="portalOpen('${esc(app.name)}')"${busyApp ? ' disabled' : ''}>${isBusy ? '<span class="spinner"></span>Opting In…' : 'Opt-In'}</button>`}
-            <button class="btn btn-accent" onclick="openAddPlugin('${esc(app.name)}')"${busyApp ? ' disabled' : ''}>+ Plugin</button>
-            <button class="btn" onclick="openAppDrawer('${esc(app.name)}')"${isBusy ? ' disabled' : ''}>Details</button>
-          </div>
+          ${isBusy ? `<div class="opt-status-msg"><span class="spinner"></span>${busyLabel}${busyStep ? ' <span class="step-label">— ' + busyStep + ' (' + busyProgress + '/' + busyTotal + ')</span>' : ''}</div><div class="progress-bar" style="width:${busyTotal ? (busyProgress / busyTotal * 100) : 0}%"></div>` : ''}
         </div>`;
       }).join('') + '</div>';
     } else {
       area.innerHTML = '<div class="section-box"><div class="section-box-header"><span>Electron Apps</span></div>'
         + apps.map(app => {
           const isOpen = app.status === 'open';
-          const plugins = Array.isArray(app.plugins) ? app.plugins : [];
+          const assignedPods = Array.isArray(app.pods) ? app.pods : [];
           const isBusy = busyApp === app.name;
           const busyLabel = busyAction === 'opt-in' ? 'Opting In…' : 'Opting Out…';
-          return `<div class="client-row" style="cursor:pointer${isBusy ? ';opacity:.6;pointer-events:none' : ''}" onclick="openAppDrawer('${esc(app.name)}')">
-            <span class="name">📦 ${esc(app.name)}</span>
-            <span style="display:flex;align-items:center;gap:8px;">
-              <span style="font-size:10px;color:var(--text-muted)">Plugins: ${plugins.length}</span>
+          return `<div class="client-row" style="${isBusy ? 'opacity:.6;pointer-events:none;' : ''}display:flex;align-items:center;justify-content:space-between;gap:8px;">
+            <span class="name" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">📦 ${esc(app.registeredName || app.name)}</span>
+            <span style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
+              <span style="font-size:10px;color:var(--text-muted)">Pods: ${assignedPods.length}</span>
               <span class="status-badge ${isBusy ? 'st-connected' : (isOpen ? 'st-open' : 'st-closed')}">${isBusy ? '⏳ ' + busyLabel : (isOpen ? '● Opted-In' : '○ Opted-Out')}</span>
+              <button class="btn" style="font-size:9px;padding:2px 6px;" onclick="openAppDrawer('${esc(app.name)}')" title="Details">⋮</button>
             </span>
           </div>`;
         }).join('') + '</div>';
@@ -851,90 +972,408 @@
     area.innerHTML = `<iframe src="${file}" style="width:100%;height:calc(100vh - 60px);border:none;border-radius:var(--radius-md);"></iframe>`;
   }
 
-  // ── App Detail Drawer ──────────────────────────────────────────────
+  // ── App Detail Drawer (Tabbed) ──────────────────────────────────
+
+  let drawerAppName = null;    // currently open app in drawer
+  let drawerDirty = false;     // has the user made changes in this drawer session?
+  let drawerActiveTab = 'app'; // 'app' | 'optin' | 'pods'
+  let drawerPendingRename = null; // pending rename value (null = no change)
+  let drawerPendingPods = null;   // pending pod list (null = no change)
+
+  function markDrawerDirty() {
+    drawerDirty = true;
+    updateDrawerFooter();
+  }
+
+  function updateDrawerFooter() {
+    const okBtn = document.getElementById('drawerOk');
+    const cancelBtn = document.getElementById('drawerCancel');
+    if (!okBtn || !cancelBtn) return;
+    cancelBtn.disabled = !drawerDirty;
+    okBtn.textContent = drawerDirty ? 'OK' : 'OK';
+  }
 
   window.openAppDrawer = function(appName) {
     const app = appData.find(a => a.name === appName);
     if (!app) return;
 
+    drawerAppName = appName;
+    drawerDirty = false;
+    drawerActiveTab = 'app';
+    drawerPendingRename = null;
+    drawerPendingPods = null;
+
     const isOpen = app.status === 'open';
-    const plugins = Array.isArray(app.plugins) ? app.plugins : [];
+    const regName = app.registeredName || '';
     const isBusy = busyApp === app.name;
     const busyLabel = busyAction === 'opt-in' ? 'Opting In…' : 'Opting Out…';
 
     document.getElementById('drawerTitle').textContent = app.name;
     document.getElementById('drawerMeta').innerHTML =
       `<span class="status-badge ${isBusy ? 'st-connected' : (isOpen ? 'st-open' : 'st-closed')}">${isBusy ? '⏳ ' + busyLabel : (isOpen ? '● Opted-In' : '○ Opted-Out')}</span>`
-      + `<span style="font-size:11px;color:var(--text-muted)">Plugins: ${plugins.length}</span>`;
+      + (regName ? `<span style="font-size:11px;color:var(--accent)">⚡ ${esc(regName)}</span>` : '')
+      + `<span style="font-size:11px;color:var(--text-muted)">Pods: ${(app.pods || []).length}</span>`;
 
-    document.getElementById('drawerBody').innerHTML = `
-      <div class="drawer-section">
-        <div class="drawer-section-title">System Plugin</div>
-        ${isBusy ? `<div class="opt-status-msg"><span class="spinner"></span>${busyLabel} — this may take up to a minute…</div>` : ''}
-        <div class="btn-row">
-          ${isOpen
-            ? `<button class="btn btn-red" onclick="portalClose('${esc(app.name)}');closeDrawer()"${busyApp ? ' disabled' : ''}>${isBusy ? '<span class="spinner"></span>Opting Out…' : 'Opt-Out'}</button>`
-            : `<button class="btn btn-green" onclick="portalOpen('${esc(app.name)}');closeDrawer()"${busyApp ? ' disabled' : ''}>${isBusy ? '<span class="spinner"></span>Opting In…' : 'Opt-In'}</button>`}
-        </div>
-      </div>
-      <div class="drawer-section">
-        <div class="drawer-section-title">Plugins</div>
-        ${plugins.length ? '<ul class="plugins-list">' + plugins.map((p, i) =>
-          `<li>
-            <span class="plugin-path" title="${esc(p)}">${esc(p)}</span>
-            <button class="btn btn-red" style="padding:2px 6px;font-size:9px;" onclick="removePlugin('${esc(app.name)}',${i+1})">✕</button>
-          </li>`
-        ).join('') + '</ul>' : '<div style="font-size:11px;color:var(--text-muted);padding:8px 0;">No plugins configured</div>'}
-        <div class="btn-row">
-          <button class="btn btn-accent" onclick="openAddPlugin('${esc(app.name)}')">+ Add Plugin</button>
-        </div>
-      </div>
-      <div class="drawer-section">
-        <div class="drawer-section-title">Connected Windows</div>
-        <div id="drawerWindows" style="font-size:11px;color:var(--text-muted);">Checking...</div>
-      </div>
+    // Build tabs
+    const tabsEl = document.getElementById('drawerTabs');
+    if (tabsEl) tabsEl.remove();
+    const tabs = document.createElement('div');
+    tabs.id = 'drawerTabs';
+    tabs.className = 'drawer-tabs';
+    tabs.innerHTML = `
+      <button class="drawer-tab active" data-tab="app">Application</button>
+      <button class="drawer-tab" data-tab="optin">Opt-In / Out</button>
+      <button class="drawer-tab" data-tab="pods">Pods</button>
+    `;
+    const drawerEl = document.getElementById('drawer');
+    const drawerBody = document.getElementById('drawerBody');
+    drawerEl.insertBefore(tabs, drawerBody);
+
+    // Tab click handler
+    tabs.addEventListener('click', e => {
+      const tab = e.target.closest('[data-tab]');
+      if (!tab) return;
+      drawerActiveTab = tab.dataset.tab;
+      tabs.querySelectorAll('.drawer-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      renderDrawerTab();
+    });
+
+    // Build footer
+    let footerEl = document.getElementById('drawerFooter');
+    if (!footerEl) {
+      footerEl = document.createElement('div');
+      footerEl.id = 'drawerFooter';
+      footerEl.className = 'drawer-footer';
+      drawerEl.appendChild(footerEl);
+    }
+    footerEl.innerHTML = `
+      <button class="btn" id="drawerCancel" disabled onclick="drawerCancelClick()">Cancel</button>
+      <button class="btn btn-accent" id="drawerOk" onclick="drawerOkClick()">OK</button>
     `;
 
-    // Populate connected windows for this app
-    const appWindows = clientData.filter(c =>
-      c.clientId.startsWith('podbay-window-') || c.clientId === 'podbay-lobby'
-    );
-    const wEl = document.getElementById('drawerWindows');
-    if (appWindows.length) {
-      wEl.innerHTML = appWindows.map(w =>
-        `<div style="padding:4px 0;display:flex;align-items:center;justify-content:space-between;">
-          <span style="color:var(--purple)">${esc(w.clientId)}</span>
-          <button class="btn" style="font-size:9px;padding:2px 6px;" onclick="execInWindow('${esc(w.clientId)}')">Execute</button>
-        </div>`
-      ).join('');
-    } else {
-      wEl.textContent = 'No windows connected';
-    }
+    renderDrawerTab();
 
     document.getElementById('drawerOverlay').classList.add('open');
-    document.getElementById('drawer').classList.add('open');
+    drawerEl.classList.add('open');
   };
+
+  function renderDrawerTab() {
+    const app = appData.find(a => a.name === drawerAppName);
+    if (!app) return;
+    const body = document.getElementById('drawerBody');
+    const isOpen = app.status === 'open';
+    const regName = app.registeredName || '';
+    const asarPath = app.asarPath || '';
+    const installDir = asarPath ? asarPath.replace(/[/\\]resources[/\\]app\.asar$/i, '') : 'Unknown';
+    const assignedPods = drawerPendingPods ? [...drawerPendingPods] : [...(app.pods || [])];
+    const isBusy = busyApp === app.name;
+    const busyLabel = busyAction === 'opt-in' ? 'Opting In…' : 'Opting Out…';
+
+    switch (drawerActiveTab) {
+      case 'app': {
+        const currentRename = drawerPendingRename !== null ? drawerPendingRename : regName;
+        body.innerHTML = `
+          <div class="drawer-section">
+            <div class="drawer-section-title">Application Details</div>
+            <div class="panel-field">
+              <div class="panel-label">Directory Name</div>
+              <div class="panel-value">${esc(app.name)}</div>
+            </div>
+            <div class="panel-field">
+              <div class="panel-label">Install Path</div>
+              <div class="panel-value" style="font-size:10px;">${esc(installDir)}</div>
+            </div>
+            <div class="panel-field">
+              <div class="panel-label">ASAR Path</div>
+              <div class="panel-value" style="font-size:10px;">${esc(asarPath)}</div>
+            </div>
+            <div class="panel-field">
+              <div class="panel-label">Status</div>
+              <div class="panel-value">${isOpen ? '<span style="color:var(--success)">● Opted-In</span>' : '<span style="color:var(--danger)">○ Opted-Out</span>'}</div>
+            </div>
+            ${regName ? `<div class="panel-field">
+              <div class="panel-label">Registered Name</div>
+              <div class="panel-value">⚡ ${esc(regName)}</div>
+            </div>` : ''}
+          </div>
+          ${isOpen && regName ? `
+          <hr class="panel-divider">
+          <div class="drawer-section">
+            <div class="drawer-section-title">Rename Application</div>
+            <div class="panel-field">
+              <div style="display:flex;gap:6px;align-items:center;">
+                <input type="text" id="drawerRenameInput" value="${esc(currentRename)}" style="flex:1;padding:6px 8px;background:var(--bg-base);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text-primary);font-size:12px;font-family:'Cascadia Code','Fira Code','Consolas',monospace;outline:none;">
+              </div>
+              <div style="font-size:9px;color:var(--text-muted);margin-top:4px;">Lowercase, alphanumeric and hyphens only. App needs restart after rename.</div>
+            </div>
+          </div>` : ''}
+        `;
+        // Watch rename input
+        const renameInput = document.getElementById('drawerRenameInput');
+        if (renameInput) {
+          renameInput.addEventListener('input', () => {
+            const v = renameInput.value.trim();
+            if (v !== regName) {
+              drawerPendingRename = v;
+              markDrawerDirty();
+            } else {
+              drawerPendingRename = null;
+              recheckDirty();
+            }
+          });
+        }
+        break;
+      }
+      case 'optin': {
+        body.innerHTML = `
+          <div class="drawer-section">
+            <div class="drawer-section-title">Opt-In / Out Status</div>
+            <div class="panel-field">
+              <div class="panel-label">Current Status</div>
+              <div style="margin-top:4px;">
+                <span class="status-badge ${isBusy ? 'st-connected' : (isOpen ? 'st-open' : 'st-closed')}" style="font-size:12px;padding:4px 12px;">
+                  ${isBusy ? '⏳ ' + busyLabel : (isOpen ? '● Opted-In' : '○ Opted-Out')}
+                </span>
+              </div>
+            </div>
+            ${regName ? `<div class="panel-field">
+              <div class="panel-label">Registered As</div>
+              <div class="panel-value">⚡ ${esc(regName)}</div>
+            </div>` : ''}
+            ${isOpen ? `<div class="panel-field">
+              <div class="panel-label">Assigned Pods</div>
+              <div class="panel-value">${assignedPods.length ? assignedPods.map(p => esc(p)).join(', ') : '<span style="color:var(--text-muted);font-style:italic">None</span>'}</div>
+            </div>` : ''}
+          </div>
+          ${isBusy ? `
+          <div class="drawer-section">
+            <div class="drawer-section-title">Progress</div>
+            <div class="opt-status-msg"><span class="spinner"></span>${busyLabel}${busyStep ? ' <span class="step-label">— ' + busyStep + ' (' + busyProgress + '/' + busyTotal + ')</span>' : ''}</div>
+            <div style="margin-top:6px;background:var(--bg-base);border-radius:4px;height:6px;overflow:hidden;">
+              <div style="width:${busyTotal ? (busyProgress / busyTotal * 100) : 0}%;height:100%;background:var(--accent);border-radius:4px;transition:width .4s ease;"></div>
+            </div>
+          </div>
+          ` : `
+          <div class="drawer-section">
+            <div class="drawer-section-title">Actions</div>
+            <div class="btn-row">
+              ${isOpen
+                ? `<button class="btn btn-red" onclick="drawerOptOut()">Opt-Out</button>
+                   <span style="font-size:10px;color:var(--text-muted);align-self:center;">Remove system plugin. App needs restart.</span>`
+                : `<button class="btn btn-green" onclick="drawerOptIn()">Opt-In</button>
+                   <span style="font-size:10px;color:var(--text-muted);align-self:center;">Inject system plugin for broker integration.</span>`}
+            </div>
+          </div>
+          `}
+        `;
+        break;
+      }
+      case 'pods': {
+        body.innerHTML = `
+          <div class="drawer-section">
+            <div class="drawer-section-title">Pod Assignment</div>
+            ${!isOpen
+              ? '<div style="font-size:11px;color:var(--text-muted);padding:8px 0;">Opt-in to manage pods</div>'
+              : renderDrawerPods(app, assignedPods)}
+          </div>
+        `;
+        break;
+      }
+    }
+  }
+
+  function renderDrawerPods(app, assignedPods) {
+    const regName = app.registeredName || app.name;
+    let html = '<div class="pods-section">';
+    // Assigned pods in order
+    assignedPods.forEach((podFile, i) => {
+      const pod = podData.find(p => p._file === podFile);
+      const label = pod ? pod.name : podFile;
+      html += `<div class="pod-row">
+        <span class="pod-name assigned" title="${esc(podFile)}">${esc(label)}</span>
+        <div class="pod-order-btns">
+          <button class="pod-assign-btn" title="Move up" onclick="event.stopPropagation();drawerMovePod(${i},-1)"${i === 0 ? ' disabled' : ''}>▲</button>
+          <button class="pod-assign-btn" title="Move down" onclick="event.stopPropagation();drawerMovePod(${i},1)"${i === assignedPods.length - 1 ? ' disabled' : ''}>▼</button>
+          <button class="pod-assign-btn" style="color:var(--danger)" title="Unassign" onclick="event.stopPropagation();drawerTogglePod('${esc(podFile)}',false)">✕</button>
+        </div>
+      </div>`;
+    });
+    // Unassigned pods
+    podData.filter(p => !assignedPods.includes(p._file)).forEach(pod => {
+      html += `<div class="pod-row">
+        <span class="pod-name" title="${esc(pod._file)}">${esc(pod.name)}</span>
+        <button class="pod-assign-btn" style="color:var(--success)" title="Assign" onclick="event.stopPropagation();drawerTogglePod('${esc(pod._file)}',true)">＋</button>
+      </div>`;
+    });
+    html += `<div style="margin-top:6px;text-align:right;"><button class="btn" style="font-size:11px;padding:2px 8px;" onclick="event.stopPropagation();goToPodEditor()">Pod+</button></div>`;
+    html += '</div>';
+    return html;
+  }
+
+  // Drawer pod modifications (local state, applied on OK)
+  window.drawerTogglePod = function(podFile, assign) {
+    const app = appData.find(a => a.name === drawerAppName);
+    if (!app) return;
+    const current = drawerPendingPods || [...(app.pods || [])];
+    if (assign) {
+      if (!current.includes(podFile)) current.push(podFile);
+    } else {
+      const idx = current.indexOf(podFile);
+      if (idx >= 0) current.splice(idx, 1);
+    }
+    drawerPendingPods = current;
+    markDrawerDirty();
+    renderDrawerTab();
+  };
+
+  window.drawerMovePod = function(index, direction) {
+    const app = appData.find(a => a.name === drawerAppName);
+    if (!app) return;
+    const current = drawerPendingPods || [...(app.pods || [])];
+    const newIdx = index + direction;
+    if (newIdx < 0 || newIdx >= current.length) return;
+    [current[index], current[newIdx]] = [current[newIdx], current[index]];
+    drawerPendingPods = current;
+    markDrawerDirty();
+    renderDrawerTab();
+  };
+
+  // Opt-in/out from drawer (immediate actions, not deferred)
+  window.drawerOptIn = function() {
+    if (!drawerAppName) return;
+    portalOpen(drawerAppName);
+    closeDrawer();
+  };
+
+  window.drawerOptOut = function() {
+    if (!drawerAppName) return;
+    portalClose(drawerAppName);
+    closeDrawer();
+  };
+
+  function recheckDirty() {
+    drawerDirty = drawerPendingRename !== null || drawerPendingPods !== null;
+    updateDrawerFooter();
+  }
+
+  // ── Drawer OK / Cancel / Close ─────────────────────────────────────
+
+  window.drawerOkClick = async function() {
+    const app = appData.find(a => a.name === drawerAppName);
+    if (!app) { closeDrawer(); return; }
+    const regName = app.registeredName || '';
+
+    // Apply pending rename
+    if (drawerPendingRename !== null && drawerPendingRename !== regName && regName) {
+      try {
+        await callTool('podbay__rename', { oldName: regName, newName: drawerPendingRename });
+        showToast('✓ Renamed ' + regName + ' → ' + drawerPendingRename, 'success');
+      } catch (e) {
+        showToast('✗ Rename failed: ' + e.message, 'error');
+      }
+    }
+
+    // Apply pending pod changes
+    if (drawerPendingPods !== null) {
+      const currentPods = app.pods || [];
+      const newPods = drawerPendingPods;
+      const appRegName = drawerPendingRename || regName || app.name;
+      try {
+        // Unassign removed pods
+        for (const p of currentPods) {
+          if (!newPods.includes(p)) {
+            await callTool('podbay__pods_unassign', { name: appRegName, pod: p });
+          }
+        }
+        // Unassign remaining to reorder
+        for (const p of currentPods) {
+          if (newPods.includes(p)) {
+            await callTool('podbay__pods_unassign', { name: appRegName, pod: p });
+          }
+        }
+        // Reassign in new order
+        for (const p of newPods) {
+          await callTool('podbay__pods_assign', { name: appRegName, pod: p });
+        }
+        showToast('✓ Pods updated', 'success');
+      } catch (e) {
+        showToast('✗ Pod update failed: ' + e.message, 'error');
+      }
+    }
+
+    drawerDirty = false;
+    drawerPendingRename = null;
+    drawerPendingPods = null;
+    closeDrawer();
+    await refreshApps();
+    renderSection();
+  };
+
+  window.drawerCancelClick = function() {
+    if (drawerDirty) {
+      document.getElementById('confirmOverlay').classList.add('open');
+    } else {
+      closeDrawer();
+    }
+  };
+
+  window.confirmReturn = function() {
+    document.getElementById('confirmOverlay').classList.remove('open');
+  };
+
+  window.confirmDiscard = function() {
+    document.getElementById('confirmOverlay').classList.remove('open');
+    drawerDirty = false;
+    drawerPendingRename = null;
+    drawerPendingPods = null;
+    closeDrawer();
+  };
+
+  function tryCloseDrawer() {
+    if (drawerDirty) {
+      document.getElementById('confirmOverlay').classList.add('open');
+    } else {
+      closeDrawer();
+    }
+  }
 
   function closeDrawer() {
     document.getElementById('drawerOverlay').classList.remove('open');
     document.getElementById('drawer').classList.remove('open');
+    // Clean up tabs and footer when closing
+    const tabsEl = document.getElementById('drawerTabs');
+    if (tabsEl) tabsEl.remove();
+    drawerAppName = null;
+    drawerDirty = false;
+    drawerPendingRename = null;
+    drawerPendingPods = null;
   }
   window.closeDrawer = closeDrawer;
 
   // ── Actions ────────────────────────────────────────────────────────
 
   window.portalOpen = async function(appName) {
+    const defaultName = appName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'app';
+    const app = appData.find(a => a.name === appName);
+    const suggestion = (app && app.registeredName) || defaultName;
+    const name = prompt('Enter a name for this app (lowercase, hyphens allowed):', suggestion);
+    if (name === null) return; // cancelled
+    if (!name.trim()) { alert('Name cannot be blank'); return; }
     busyApp = appName;
     busyAction = 'opt-in';
+    busyProgress = 0; busyTotal = 0; busyStep = '';
     renderSection();
     try {
-      await callTool('podbay__opt_in', { app: appName });
+      await callTool('podbay__opt_in', { app: appName, name: name.trim() });
+      showToast('✓ ' + appName + ' opted-in as ' + name.trim(), 'success');
       await refreshApps();
     } catch (e) {
-      alert('Failed to opt-in: ' + e.message);
+      showToast('✗ Opt-in failed: ' + e.message, 'error');
     } finally {
       busyApp = null;
       busyAction = null;
+      busyProgress = 0; busyTotal = 0; busyStep = '';
       renderSection();
     }
   };
@@ -943,60 +1382,27 @@
     if (!confirm('Opt-out ' + appName + '? The app will need a restart.')) return;
     busyApp = appName;
     busyAction = 'opt-out';
+    busyProgress = 0; busyTotal = 0; busyStep = '';
     renderSection();
     try {
       await callTool('podbay__opt_out', { app: appName });
+      showToast('✓ ' + appName + ' opted-out', 'success');
       await refreshApps();
     } catch (e) {
-      alert('Failed to opt-out: ' + e.message);
+      showToast('✗ Opt-out failed: ' + e.message, 'error');
     } finally {
       busyApp = null;
       busyAction = null;
+      busyProgress = 0; busyTotal = 0; busyStep = '';
       renderSection();
     }
   };
 
-  window.removePlugin = async function(appName, index) {
-    if (!confirm('Remove plugin #' + index + ' from ' + appName + '?')) return;
-    try {
-      await callTool('podbay__plugins_remove', { app: appName, index: index });
-      await refreshApps();
-      renderSection();
-    } catch (e) {
-      alert('Failed to remove plugin: ' + e.message);
-    }
-  };
+  // ── Pods Expander (now handled within drawer tabs) ──────────────────────────────────
 
-  window.openAddPlugin = function(appName) {
-    addPluginAppName = appName;
-    document.getElementById('addPluginApp').textContent = 'App: ' + appName;
-    document.getElementById('addPluginInput').value = '';
-    document.getElementById('addPluginModal').style.display = 'flex';
-    document.getElementById('addPluginInput').focus();
+  window.goToPodEditor = function() {
+    window.location.href = 'pod-editor.html';
   };
-
-  window.closeAddPlugin = function() {
-    document.getElementById('addPluginModal').style.display = 'none';
-    addPluginAppName = null;
-  };
-
-  document.getElementById('addPluginSubmit').onclick = async function() {
-    const path = document.getElementById('addPluginInput').value.trim();
-    if (!path || !addPluginAppName) return;
-    try {
-      await callTool('podbay__plugins_add', { app: addPluginAppName, path: path });
-      closeAddPlugin();
-      await refreshApps();
-      renderSection();
-    } catch (e) {
-      alert('Failed to add plugin: ' + e.message);
-    }
-  };
-
-  document.getElementById('addPluginInput').addEventListener('keydown', function(e) {
-    if (e.key === 'Enter') document.getElementById('addPluginSubmit').click();
-    if (e.key === 'Escape') closeAddPlugin();
-  });
 
   window.execInWindow = function(clientId) {
     const code = prompt('JavaScript to execute in ' + clientId + ':');
@@ -1049,9 +1455,19 @@
     });
 
     // Drawer close
-    document.getElementById('drawerClose').addEventListener('click', closeDrawer);
-    document.getElementById('drawerOverlay').addEventListener('click', closeDrawer);
-    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); });
+    document.getElementById('drawerClose').addEventListener('click', tryCloseDrawer);
+    document.getElementById('drawerOverlay').addEventListener('click', tryCloseDrawer);
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape') {
+        // Close confirm modal first if open
+        const confirm = document.getElementById('confirmOverlay');
+        if (confirm && confirm.classList.contains('open')) {
+          confirmReturn();
+          return;
+        }
+        tryCloseDrawer();
+      }
+    });
   });
 
   // Auto-refresh every 15 seconds

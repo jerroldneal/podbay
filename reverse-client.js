@@ -11,7 +11,7 @@
  */
 
 const WebSocket = require('ws');
-const { optIn, optOut, normalizeName, validateName, discover, readPlugins, writePlugins, resolveApp, pods } = require('./index');
+const { optIn, optOut, normalizeName, validateName, discover, resolveApp, pods, getAppPods, assignPod, unassignPod, renameApp, loadRegistry } = require('./index');
 const asar = require('./lib/asar');
 
 const TAG = '[PodBay RC]';
@@ -20,7 +20,27 @@ const CLIENT_ID = 'podbay';
 const RECONNECT_MS = 3000;
 const MAX_RECONNECT_MS = 30000;
 
+let activeWs = null;  // current WebSocket, set on connect
+
 function log(...args) { process.stderr.write(TAG + ' ' + args.join(' ') + '\n'); }
+
+/**
+ * Send an MCP-standard notifications/progress message via WS.
+ * @param {string} callId - The tool_call callId (used as progressToken)
+ * @param {number} progress - Current step (1-based)
+ * @param {number} total - Total steps
+ * @param {string} [message] - Human-readable step label
+ */
+function sendProgress(callId, progress, total, message) {
+  if (!activeWs || activeWs.readyState !== 1) return;
+  activeWs.send(JSON.stringify({
+    type: 'notification',
+    data: {
+      method: 'notifications/progress',
+      params: { progressToken: callId, progress, total, message: message || '' },
+    },
+  }));
+}
 
 // ── Tool definitions ─────────────────────────────────────────────────────────
 
@@ -31,12 +51,18 @@ const tools = [
     inputSchema: { type: 'object', properties: {} },
     handler: () => {
       const apps = discover();
-      return apps.map((a, i) => ({
-        index: i + 1,
-        name: a.name,
-        status: asar.status(a.asarPath),
-        plugins: readPlugins(a.asarPath).length,
-      }));
+      const reg = loadRegistry();
+      return apps.map((a, i) => {
+        const entry = Object.entries(reg).find(([, v]) => v.asarPath === a.asarPath);
+        return {
+          index: i + 1,
+          name: a.name,
+          asarPath: a.asarPath,
+          status: asar.status(a.asarPath),
+          registeredName: entry ? entry[0] : null,
+          pods: entry ? (entry[1].pods || []) : [],
+        };
+      });
     },
   },
   {
@@ -50,14 +76,16 @@ const tools = [
       },
       required: ['app'],
     },
-    handler: ({ app: nameOrIndex, name }) => {
+    handler: ({ app: nameOrIndex, name }, callId) => {
       const apps = discover();
       const app = resolveApp(apps, nameOrIndex);
       if (!app) return { error: 'App not found: ' + nameOrIndex };
       if (!name) name = normalizeName(app.name);
       const err = validateName(name);
       if (err) return { error: err };
-      optIn(app.asarPath, name);
+      optIn(app.asarPath, name, (step, progress, total) => {
+        sendProgress(callId, progress, total, step);
+      });
       return { name: name, app: app.name, status: 'opted-in' };
     },
   },
@@ -69,11 +97,13 @@ const tools = [
       properties: { app: { type: 'string', description: 'App name or 1-based index' } },
       required: ['app'],
     },
-    handler: ({ app: nameOrIndex }) => {
+    handler: ({ app: nameOrIndex }, callId) => {
       const apps = discover();
       const app = resolveApp(apps, nameOrIndex);
       if (!app) return { error: 'App not found: ' + nameOrIndex };
-      optOut(app.asarPath);
+      optOut(app.asarPath, (step, progress, total) => {
+        sendProgress(callId, progress, total, step);
+      });
       return { name: app.name, status: 'opted-out' };
     },
   },
@@ -89,93 +119,31 @@ const tools = [
       const apps = discover();
       const app = resolveApp(apps, nameOrIndex);
       if (!app) return { error: 'App not found: ' + nameOrIndex };
+      const reg = loadRegistry();
+      const entry = Object.entries(reg).find(([, v]) => v.asarPath === app.asarPath);
       return {
         name: app.name,
+        asarPath: app.asarPath,
         status: asar.status(app.asarPath),
-        plugins: readPlugins(app.asarPath),
+        registeredName: entry ? entry[0] : null,
+        pods: entry ? (entry[1].pods || []) : [],
       };
     },
   },
   {
-    name: 'plugins_list',
-    description: 'List configured plugins for an Electron app',
-    inputSchema: {
-      type: 'object',
-      properties: { app: { type: 'string', description: 'App name or 1-based index' } },
-      required: ['app'],
-    },
-    handler: ({ app: nameOrIndex }) => {
-      const apps = discover();
-      const app = resolveApp(apps, nameOrIndex);
-      if (!app) return { error: 'App not found: ' + nameOrIndex };
-      return readPlugins(app.asarPath);
-    },
-  },
-  {
-    name: 'plugins_add',
-    description: 'Add a plugin by file path to an Electron app',
+    name: 'rename',
+    description: 'Rename an opted-in app (change its registered broker name)',
     inputSchema: {
       type: 'object',
       properties: {
-        app: { type: 'string', description: 'App name or 1-based index' },
-        path: { type: 'string', description: 'Plugin file path (must be require-resolvable)' },
+        oldName: { type: 'string', description: 'Current registered name' },
+        newName: { type: 'string', description: 'New registered name' },
       },
-      required: ['app', 'path'],
+      required: ['oldName', 'newName'],
     },
-    handler: ({ app: nameOrIndex, path: pluginPath }) => {
-      const apps = discover();
-      const app = resolveApp(apps, nameOrIndex);
-      if (!app) return { error: 'App not found: ' + nameOrIndex };
-      try { require.resolve(pluginPath); }
-      catch (_) { return { error: 'require.resolve() failed for: ' + pluginPath }; }
-      const list = readPlugins(app.asarPath);
-      if (list.includes(pluginPath)) return { error: 'Already in list: ' + pluginPath };
-      list.push(pluginPath);
-      writePlugins(app.asarPath, list);
-      return { added: pluginPath, total: list.length };
-    },
-  },
-  {
-    name: 'plugins_remove',
-    description: 'Remove a plugin by 1-based index from an Electron app',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        app: { type: 'string', description: 'App name or 1-based index' },
-        index: { type: 'number', description: '1-based plugin index' },
-      },
-      required: ['app', 'index'],
-    },
-    handler: ({ app: nameOrIndex, index }) => {
-      const apps = discover();
-      const app = resolveApp(apps, nameOrIndex);
-      if (!app) return { error: 'App not found: ' + nameOrIndex };
-      const list = readPlugins(app.asarPath);
-      const idx = index - 1;
-      if (idx < 0 || idx >= list.length) return { error: 'Invalid plugin index: ' + index };
-      const removed = list.splice(idx, 1)[0];
-      writePlugins(app.asarPath, list);
-      return { removed, total: list.length };
-    },
-  },
-  {
-    name: 'plugins_set',
-    description: 'Replace the full plugin list for an Electron app',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        app: { type: 'string', description: 'App name or 1-based index' },
-        plugins: { type: 'array', items: { type: 'string' }, description: 'Array of plugin file paths' },
-      },
-      required: ['app', 'plugins'],
-    },
-    handler: ({ app: nameOrIndex, plugins }) => {
-      const apps = discover();
-      const app = resolveApp(apps, nameOrIndex);
-      if (!app) return { error: 'App not found: ' + nameOrIndex };
-      if (!Array.isArray(plugins)) return { error: 'plugins must be an array' };
-      writePlugins(app.asarPath, plugins);
-      return { total: plugins.length };
+    handler: ({ oldName, newName }) => {
+      renameApp(oldName, newName);
+      return { oldName, newName, status: 'renamed' };
     },
   },
   // ── Injection tool (system plugin calls this) ────────────────────────
@@ -196,10 +164,18 @@ const tools = [
     handler: (meta) => {
       log('Inject request from:', meta.clientId || 'unknown', '—', meta.url || 'no-url');
 
-      // Resolve all plugin code from all pods
-      const allPlugins = pods.getAllPluginCode();
-      if (!allPlugins.length) {
+      // Look up which pods are assigned to this client
+      const appPods = getAppPods(meta.clientId || '');
+
+      if (!appPods.length) {
+        log('No pods assigned to:', meta.clientId || 'unknown');
         return { code: null, plugins: 0, codeLength: 0, pods: [] };
+      }
+
+      // Resolve plugin code only from assigned pods
+      const allPlugins = pods.getPluginCodeForPods(appPods);
+      if (!allPlugins.length) {
+        return { code: null, plugins: 0, codeLength: 0, pods: appPods };
       }
 
       // Combine all plugin code into a single injectable bundle
@@ -209,17 +185,13 @@ const tools = [
       });
       const bundle = parts.join('\n\n');
 
-      // Track which pods contributed
-      const allPods = pods.loadPods();
-      const podNames = allPods.map(p => p.name);
-
-      log('Bundle built:', allPlugins.length, 'plugins,', bundle.length, 'chars from', podNames.join(', '));
+      log('Bundle built:', allPlugins.length, 'plugins,', bundle.length, 'chars from', appPods.join(', '));
 
       return {
         code: bundle,
         plugins: allPlugins.length,
         codeLength: bundle.length,
-        pods: podNames,
+        pods: appPods,
         target: meta.clientId || 'unknown',
       };
     },
@@ -295,6 +267,61 @@ const tools = [
       }));
     },
   },
+  // ── Pod-to-app assignment tools ──────────────────────────────────────
+  {
+    name: 'pods_assign',
+    description: 'Assign a .pod file to an opted-in app',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Registered app name (e.g. "cwg")' },
+        pod: { type: 'string', description: 'Pod filename (e.g. "cwg-debug.pod")' },
+      },
+      required: ['name', 'pod'],
+    },
+    handler: ({ name, pod: podFile }) => {
+      if (!pods.getPod(podFile)) return { error: 'Pod not found: ' + podFile };
+      try {
+        assignPod(name, podFile);
+        return { assigned: podFile, app: name, pods: getAppPods(name) };
+      } catch (e) {
+        return { error: e.message };
+      }
+    },
+  },
+  {
+    name: 'pods_unassign',
+    description: 'Unassign a .pod file from an opted-in app',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Registered app name (e.g. "cwg")' },
+        pod: { type: 'string', description: 'Pod filename to unassign' },
+      },
+      required: ['name', 'pod'],
+    },
+    handler: ({ name, pod: podFile }) => {
+      try {
+        unassignPod(name, podFile);
+        return { unassigned: podFile, app: name, pods: getAppPods(name) };
+      } catch (e) {
+        return { error: e.message };
+      }
+    },
+  },
+  {
+    name: 'pods_app',
+    description: 'List pods assigned to a specific opted-in app',
+    inputSchema: {
+      type: 'object',
+      properties: { name: { type: 'string', description: 'Registered app name' } },
+      required: ['name'],
+    },
+    handler: ({ name }) => {
+      const appPodsList = getAppPods(name);
+      return { app: name, pods: appPodsList };
+    },
+  },
 ];
 
 // ── Minimal reverse-client protocol ──────────────────────────────────────────
@@ -305,6 +332,7 @@ function connect(url) {
 
   function start() {
     const ws = new WebSocket(url);
+    activeWs = ws;
 
     ws.on('open', () => {
       reconnectDelay = RECONNECT_MS;
@@ -337,7 +365,7 @@ function connect(url) {
         }
 
         try {
-          const result = await entry.handler(msg.arguments || {});
+          const result = await entry.handler(msg.arguments || {}, msg.callId);
           const text = typeof result === 'string' ? result : JSON.stringify(result);
           ws.send(JSON.stringify({
             type: 'tool_result', callId: msg.callId,

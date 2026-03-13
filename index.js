@@ -40,15 +40,69 @@ function validateName(name) {
   return null;
 }
 
-// ── Name registry (uniqueness tracking) ──────────────────────────────────
+// ── Name registry (uniqueness tracking & pod assignments) ────────────────
 
 function loadRegistry() {
-  try { return JSON.parse(fs.readFileSync(REGISTRY_PATH, 'utf8')); }
+  try {
+    const raw = JSON.parse(fs.readFileSync(REGISTRY_PATH, 'utf8'));
+    // Migrate legacy string values to object format
+    const reg = {};
+    for (const [k, v] of Object.entries(raw)) {
+      if (typeof v === 'string') {
+        reg[k] = { asarPath: v, pods: [] };
+      } else {
+        reg[k] = v;
+        if (!Array.isArray(reg[k].pods)) reg[k].pods = [];
+      }
+    }
+    return reg;
+  }
   catch (_) { return {}; }
 }
 
 function saveRegistry(reg) {
   fs.writeFileSync(REGISTRY_PATH, JSON.stringify(reg, null, 2));
+}
+
+// ── Pod-to-app mapping ──────────────────────────────────────────────────
+
+function getAppPods(name) {
+  const reg = loadRegistry();
+  const entry = reg[name];
+  if (!entry) return [];
+  return entry.pods || [];
+}
+
+function assignPod(name, podFile) {
+  const reg = loadRegistry();
+  if (!reg[name]) throw new Error(`App "${name}" is not opted-in`);
+  if (!reg[name].pods) reg[name].pods = [];
+  if (!reg[name].pods.includes(podFile)) {
+    reg[name].pods.push(podFile);
+    saveRegistry(reg);
+  }
+}
+
+function unassignPod(name, podFile) {
+  const reg = loadRegistry();
+  if (!reg[name]) throw new Error(`App "${name}" is not opted-in`);
+  if (!reg[name].pods) return;
+  const idx = reg[name].pods.indexOf(podFile);
+  if (idx >= 0) {
+    reg[name].pods.splice(idx, 1);
+    saveRegistry(reg);
+  }
+}
+
+function renameApp(oldName, newName) {
+  const err = validateName(newName);
+  if (err) throw new Error(err);
+  const reg = loadRegistry();
+  if (!reg[oldName]) throw new Error(`App "${oldName}" is not opted-in`);
+  if (reg[newName]) throw new Error(`Name "${newName}" is already taken`);
+  reg[newName] = reg[oldName];
+  delete reg[oldName];
+  saveRegistry(reg);
 }
 
 // ── Opt-In / Opt-Out (System Plugin model) ───────────────────────────────
@@ -59,13 +113,14 @@ function saveRegistry(reg) {
  * from PodBay, replacing the old portal-payload approach.
  * @param {string} asarPath
  * @param {string} name - Required client name (lowercase alphanumeric + hyphens)
+ * @param {function} [onProgress] - Optional callback: (step, progress, total) => void
  */
-function optIn(asarPath, name) {
+function optIn(asarPath, name, onProgress) {
   const err = validateName(name);
   if (err) throw new Error(err);
 
   const reg = loadRegistry();
-  if (reg[name] && reg[name] !== asarPath) {
+  if (reg[name] && reg[name].asarPath !== asarPath) {
     throw new Error(`Name "${name}" is already used by another app`);
   }
 
@@ -77,136 +132,58 @@ function optIn(asarPath, name) {
   const payload = fs.readFileSync(SYSTEM_PLUGIN_PATH, 'utf8');
   const resourcesDir = path.dirname(asarPath);
 
+  onProgress?.('backup', 1, 5);
   log('Backing up ASAR...');
   asar.backup(asarPath);
 
+  onProgress?.('extract', 2, 5);
   log('Extracting...');
   asar.extract(asarPath, WORK_DIR);
 
+  onProgress?.('patch', 3, 5);
   log('Patching with system plugin...');
   asar.patchWindowManager(WORK_DIR, payload, resourcesDir, name);
 
+  onProgress?.('repack', 4, 5);
   log('Repacking...');
   asar.repack(WORK_DIR, asarPath);
 
   fs.rmSync(WORK_DIR, { recursive: true, force: true });
 
-  reg[name] = asarPath;
+  // Remove any existing entry for this asarPath under a different name
+  for (const [n, entry] of Object.entries(reg)) {
+    if (n !== name && entry.asarPath === asarPath) { delete reg[n]; }
+  }
+  reg[name] = { asarPath, pods: reg[name] ? (reg[name].pods || []) : [] };
   saveRegistry(reg);
+
+  onProgress?.('done', 5, 5);
   log('Opted-in as', name + '. Restart the app to activate.');
 }
 
 /**
  * Opt-out an Electron app — restore original ASAR from backup.
  * @param {string} asarPath
+ * @param {function} [onProgress] - Optional callback: (step, progress, total) => void
  */
-function optOut(asarPath) {
+function optOut(asarPath, onProgress) {
   if (asar.status(asarPath) === 'closed') {
     log('Already opted-out for', asarPath);
     return;
   }
 
+  onProgress?.('restore', 1, 2);
   log('Restoring original ASAR...');
   asar.restore(asarPath);
 
   const reg = loadRegistry();
-  for (const [n, p] of Object.entries(reg)) {
-    if (p === asarPath) { delete reg[n]; break; }
+  for (const [n, entry] of Object.entries(reg)) {
+    if (entry.asarPath === asarPath) { delete reg[n]; }
   }
   saveRegistry(reg);
+
+  onProgress?.('done', 2, 2);
   log('Opted-out. Restart the app to restore original behavior.');
-}
-
-// ── Plugin config helpers ────────────────────────────────────────────────
-
-function pluginsPath(asarPath) {
-  return path.join(path.dirname(asarPath), 'podbay-plugins.json');
-}
-
-function readPlugins(asarPath) {
-  const p = pluginsPath(asarPath);
-  try { return JSON.parse(fs.readFileSync(p, 'utf8')); }
-  catch (_) { return []; }
-}
-
-function writePlugins(asarPath, list) {
-  fs.writeFileSync(pluginsPath(asarPath), JSON.stringify(list, null, 2));
-}
-
-// ── Plugin CLI ───────────────────────────────────────────────────────────
-
-function pluginAdd(rl, asarPath) {
-  return new Promise(resolve => {
-    rl.question('  Plugin path: ', answer => {
-      const p = answer.trim();
-      if (!p) { log('Cancelled.'); return resolve(); }
-      try {
-        require.resolve(p);
-      } catch (_) {
-        log('Invalid — require.resolve() failed for:', p);
-        return resolve();
-      }
-      const list = readPlugins(asarPath);
-      if (list.includes(p)) {
-        log('Already in list:', p);
-      } else {
-        list.push(p);
-        writePlugins(asarPath, list);
-        log('Added:', p);
-      }
-      resolve();
-    });
-  });
-}
-
-function pluginList(rl, asarPath) {
-  return new Promise(resolve => {
-    const list = readPlugins(asarPath);
-    if (!list.length) { log('No plugins configured.'); return resolve(); }
-    console.log();
-    list.forEach((p, i) => {
-      let resolved = '';
-      try { resolved = require.resolve(p); } catch (_) { resolved = '(unresolved)'; }
-      console.log(`  ${i + 1}. ${p}`);
-      if (resolved !== p) console.log(`     → ${resolved}`);
-    });
-    console.log();
-    rl.question('  Select number for info (or Enter to go back): ', answer => {
-      const idx = parseInt(answer, 10) - 1;
-      if (isNaN(idx) || idx < 0 || idx >= list.length) return resolve();
-      const entry = list[idx];
-      let resolved, size;
-      try {
-        resolved = require.resolve(entry);
-        size = fs.statSync(resolved).size;
-      } catch (_) { resolved = '(unresolved)'; size = 0; }
-      console.log(`\n  Path:     ${entry}`);
-      console.log(`  Resolved: ${resolved}`);
-      console.log(`  Size:     ${size} bytes\n`);
-      resolve();
-    });
-  });
-}
-
-function pluginRemove(rl, asarPath) {
-  return new Promise(resolve => {
-    const list = readPlugins(asarPath);
-    if (!list.length) { log('No plugins configured.'); return resolve(); }
-    console.log();
-    list.forEach((p, i) => console.log(`  ${i + 1}. ${p}`));
-    console.log();
-    rl.question('  Remove number: ', answer => {
-      const idx = parseInt(answer, 10) - 1;
-      if (isNaN(idx) || idx < 0 || idx >= list.length) {
-        log('Invalid selection.');
-        return resolve();
-      }
-      const removed = list.splice(idx, 1)[0];
-      writePlugins(asarPath, list);
-      log('Removed:', removed);
-      resolve();
-    });
-  });
 }
 
 // ── Resolve app by name or 1-based index ─────────────────────────────────
@@ -221,13 +198,17 @@ function resolveApp(apps, nameOrIndex) {
 
 function cliList() {
   const apps = discover();
-  const result = apps.map((a, i) => ({
-    index: i + 1,
-    name: a.name,
-    status: asar.status(a.asarPath),
-    plugins: readPlugins(a.asarPath).length,
-    asarPath: a.asarPath,
-  }));
+  const reg = loadRegistry();
+  const result = apps.map((a, i) => {
+    const name = Object.entries(reg).find(([, p]) => p === a.asarPath || (p && p.asarPath === a.asarPath));
+    return {
+      index: i + 1,
+      name: a.name,
+      status: asar.status(a.asarPath),
+      asarPath: a.asarPath,
+      registeredName: name ? name[0] : null,
+    };
+  });
   console.log(JSON.stringify(result, null, 2));
 }
 
@@ -235,58 +216,14 @@ function cliStatus(nameOrIndex) {
   const apps = discover();
   const app = resolveApp(apps, nameOrIndex);
   if (!app) { log('App not found:', nameOrIndex); process.exit(1); }
+  const reg = loadRegistry();
+  const entry = Object.entries(reg).find(([, p]) => p === app.asarPath || (p && p.asarPath === app.asarPath));
   console.log(JSON.stringify({
     name: app.name,
     status: asar.status(app.asarPath),
-    plugins: readPlugins(app.asarPath),
+    registeredName: entry ? entry[0] : null,
+    pods: entry && entry[1] && entry[1].pods ? entry[1].pods : [],
   }, null, 2));
-}
-
-function cliPluginsList(nameOrIndex) {
-  const apps = discover();
-  const app = resolveApp(apps, nameOrIndex);
-  if (!app) { log('App not found:', nameOrIndex); process.exit(1); }
-  console.log(JSON.stringify(readPlugins(app.asarPath), null, 2));
-}
-
-function cliPluginsAdd(nameOrIndex, pluginPath) {
-  const apps = discover();
-  const app = resolveApp(apps, nameOrIndex);
-  if (!app) { log('App not found:', nameOrIndex); process.exit(1); }
-  try { require.resolve(pluginPath); }
-  catch (_) { log('Invalid — require.resolve() failed for:', pluginPath); process.exit(1); }
-  const list = readPlugins(app.asarPath);
-  if (list.includes(pluginPath)) { log('Already in list:', pluginPath); return; }
-  list.push(pluginPath);
-  writePlugins(app.asarPath, list);
-  log('Added:', pluginPath);
-}
-
-function cliPluginsRemove(nameOrIndex, indexStr) {
-  const apps = discover();
-  const app = resolveApp(apps, nameOrIndex);
-  if (!app) { log('App not found:', nameOrIndex); process.exit(1); }
-  const idx = parseInt(indexStr, 10) - 1;
-  const list = readPlugins(app.asarPath);
-  if (isNaN(idx) || idx < 0 || idx >= list.length) {
-    log('Invalid plugin index:', indexStr);
-    process.exit(1);
-  }
-  const removed = list.splice(idx, 1)[0];
-  writePlugins(app.asarPath, list);
-  log('Removed:', removed);
-}
-
-function cliPluginsSet(nameOrIndex, jsonStr) {
-  const apps = discover();
-  const app = resolveApp(apps, nameOrIndex);
-  if (!app) { log('App not found:', nameOrIndex); process.exit(1); }
-  let list;
-  try { list = JSON.parse(jsonStr); }
-  catch (_) { log('Invalid JSON:', jsonStr); process.exit(1); }
-  if (!Array.isArray(list)) { log('Plugin list must be an array'); process.exit(1); }
-  writePlugins(app.asarPath, list);
-  log('Plugin list updated:', list.length, 'plugin(s)');
 }
 
 function cliOptIn(nameOrIndex, name) {
@@ -311,19 +248,6 @@ function handleCli(args) {
     case 'opt-in':  return cliOptIn(args[1], args[2]);
     case 'opt-out': return cliOptOut(args[1]);
     case 'status':  return cliStatus(args[1]);
-    case 'plugins': {
-      const sub = args[1];
-      switch (sub) {
-        case 'list':   return cliPluginsList(args[2]);
-        case 'add':    return cliPluginsAdd(args[2], args[3]);
-        case 'remove': return cliPluginsRemove(args[2], args[3]);
-        case 'set':    return cliPluginsSet(args[2], args[3]);
-        default:
-          log('Unknown plugins command:', sub);
-          log('Usage: podbay plugins <list|add|remove|set> <app> [args]');
-          process.exit(1);
-      }
-    }
     case 'pods': {
       const sub = args[1];
       switch (sub) {
@@ -341,15 +265,30 @@ function handleCli(args) {
           if (pods.deletePod(args[2])) log('Deleted:', args[2]);
           else { log('Pod not found:', args[2]); process.exit(1); }
           return;
+        case 'assign':
+          if (!args[2] || !args[3]) { log('Usage: podbay pods assign <app-name> <pod-filename>'); process.exit(1); }
+          if (!pods.getPod(args[3])) { log('Pod not found:', args[3]); process.exit(1); }
+          try { assignPod(args[2], args[3]); log('Assigned', args[3], 'to', args[2]); }
+          catch (e) { log(e.message); process.exit(1); }
+          return;
+        case 'unassign':
+          if (!args[2] || !args[3]) { log('Usage: podbay pods unassign <app-name> <pod-filename>'); process.exit(1); }
+          try { unassignPod(args[2], args[3]); log('Unassigned', args[3], 'from', args[2]); }
+          catch (e) { log(e.message); process.exit(1); }
+          return;
+        case 'app':
+          if (!args[2]) { log('Usage: podbay pods app <app-name>'); process.exit(1); }
+          console.log(JSON.stringify({ app: args[2], pods: getAppPods(args[2]) }, null, 2));
+          return;
         default:
           log('Unknown pods command:', sub);
-          log('Usage: podbay pods <list|get|delete> [args]');
+          log('Usage: podbay pods <list|get|delete|assign|unassign|app> [args]');
           process.exit(1);
       }
     }
     default:
       log('Unknown command:', cmd);
-      log('Usage: podbay <list|opt-in|opt-out|status|plugins|pods> [args]');
+      log('Usage: podbay <list|opt-in|opt-out|status|pods> [args]');
       process.exit(1);
   }
 }
@@ -373,9 +312,7 @@ async function interactive() {
     console.log('\n  Open the Pod Bay\n');
     apps.forEach((app, i) => {
       const s = asar.status(app.asarPath);
-      const pc = readPlugins(app.asarPath).length;
-      const extra = pc ? ` (${pc} plugin${pc > 1 ? 's' : ''})` : '';
-      console.log(`  ${i + 1}. ${app.name}  [${s}]${extra}`);
+      console.log(`  ${i + 1}. ${app.name}  [${s}]`);
     });
 
     const pick = await ask(rl, '\nSelect app: ');
@@ -391,9 +328,7 @@ async function interactive() {
     console.log(`\n  ${app.name} — ${current}\n`);
     console.log('  1. Opt-In');
     console.log('  2. Opt-Out');
-    console.log('  3. Add plugin');
-    console.log('  4. List plugins');
-    console.log('  5. Remove plugin');
+    console.log('  3. Assign pods');
 
     const action = await ask(rl, '\nAction: ');
     const a = action.trim();
@@ -408,9 +343,30 @@ async function interactive() {
         break;
       }
       case '2': case 'opt-out': optOut(app.asarPath); break;
-      case '3': case 'add':   await pluginAdd(rl, app.asarPath); break;
-      case '4': case 'list':  await pluginList(rl, app.asarPath); break;
-      case '5': case 'remove': await pluginRemove(rl, app.asarPath); break;
+      case '3': case 'pods': {
+        const reg = loadRegistry();
+        const entry = Object.entries(reg).find(([, v]) => v === app.asarPath || (v && v.asarPath === app.asarPath));
+        if (!entry) { log('App must be opted-in first.'); break; }
+        const name = entry[0];
+        const appPods = getAppPods(name);
+        const allPods = pods.loadPods();
+        console.log(`\n  Pods assigned to ${name}:`);
+        if (!appPods.length) console.log('    (none)');
+        else appPods.forEach(p => console.log(`    - ${p}`));
+        console.log('\n  Available pods:');
+        allPods.forEach(p => console.log(`    - ${p._file}  (${p.name})`));
+        const podFile = (await ask(rl, '\n  Assign/unassign pod file (or Enter to go back): ')).trim();
+        if (!podFile) break;
+        if (appPods.includes(podFile)) {
+          unassignPod(name, podFile);
+          log('Unassigned:', podFile);
+        } else {
+          if (!pods.getPod(podFile)) { log('Pod not found:', podFile); break; }
+          assignPod(name, podFile);
+          log('Assigned:', podFile);
+        }
+        break;
+      }
       default: log('Unknown action:', action);
     }
   } finally {
@@ -418,7 +374,7 @@ async function interactive() {
   }
 }
 
-module.exports = { optIn, optOut, normalizeName, validateName, discover, readPlugins, writePlugins, pluginsPath, resolveApp, pods };
+module.exports = { optIn, optOut, normalizeName, validateName, discover, resolveApp, pods, getAppPods, assignPod, unassignPod, renameApp, loadRegistry };
 
 if (require.main === module) {
   const args = process.argv.slice(2);
