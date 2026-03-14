@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PodBay Game Status</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#1e1e1e; color:#d4d4d4; font:14px/1.6 'Cascadia Code','Fira Code','Consolas',monospace; height:100vh; display:flex; flex-direction:column; }
+
+  /* Toolbar */
+  #toolbar { display:flex; align-items:center; gap:12px; padding:8px 14px; background:#2d2d2d; border-bottom:1px solid #3c3c3c; flex-shrink:0; }
+  .title { font-weight:bold; color:#e6db74; font-size:14px; }
+  select { background:#3c3c3c; color:#d4d4d4; border:1px solid #555; padding:4px 8px; font:12px inherit; border-radius:3px; cursor:pointer; }
+  select:focus { outline:1px solid #66d9ef; }
+  .status { font-size:11px; color:#888; }
+  .status.polling { color:#4caf50; }
+  #toolbar button { background:#3c3c3c; color:#d4d4d4; border:1px solid #555; padding:4px 14px; cursor:pointer; font:12px inherit; border-radius:3px; }
+  #toolbar button:hover { background:#505050; }
+
+  /* Main layout */
+  #main { flex:1; display:flex; overflow:hidden; }
+
+  /* Left: timeline */
+  #timeline { width:300px; min-width:200px; border-right:1px solid #3c3c3c; overflow-y:auto; background:#252526; }
+  .snap { padding:8px 12px; border-bottom:1px solid #2d2d2d; cursor:pointer; font-size:12px; }
+  .snap:hover { background:#2a2d2e; }
+  .snap.active { background:#1a3a5c; border-left:3px solid #66d9ef; }
+  .snap .ts { color:#888; font-size:11px; }
+  .snap .summary { color:#d4d4d4; margin-top:2px; }
+  .snap .phase { display:inline-block; padding:1px 6px; border-radius:3px; font-size:10px; font-weight:bold; margin-left:6px; }
+  .phase-preflop { background:#1a4a1a; color:#a6e22e; }
+  .phase-flop { background:#4a3a1a; color:#e6db74; }
+  .phase-turn { background:#4a2a1a; color:#fd971f; }
+  .phase-river { background:#4a1a1a; color:#f92672; }
+  .phase-showdown { background:#3a1a4a; color:#ae81ff; }
+  .phase-unknown { background:#3c3c3c; color:#888; }
+  #timeline:empty::after { content:'No snapshots yet. Select a table.'; color:#555; font-size:12px; padding:16px; display:block; font-style:italic; }
+
+  /* Right: detail */
+  #detail { flex:1; overflow-y:auto; padding:16px 20px; }
+  #detail:empty::after { content:'Select a snapshot from the timeline.'; color:#555; font-size:13px; font-style:italic; }
+  .section { margin-bottom:16px; }
+  .section-title { color:#66d9ef; font-size:13px; font-weight:bold; border-bottom:1px solid #3c3c3c; padding-bottom:3px; margin-bottom:6px; }
+  .kv { display:flex; gap:8px; padding:2px 0; }
+  .kv .k { color:#888; min-width:100px; }
+  .kv .v { color:#d4d4d4; }
+  .kv .v.highlight { color:#e6db74; font-weight:bold; }
+
+  /* Player table */
+  table { width:100%; border-collapse:collapse; font-size:12px; margin-top:4px; }
+  th { text-align:left; color:#66d9ef; padding:4px 8px; border-bottom:1px solid #3c3c3c; font-weight:bold; }
+  td { padding:4px 8px; border-bottom:1px solid #2d2d2d; }
+  tr.active-turn { background:#1a3a1a; }
+  tr.dealer-seat td:first-child::after { content:' D'; color:#e6db74; font-weight:bold; }
+  .cards { color:#a6e22e; font-weight:bold; letter-spacing:1px; }
+  .cards-red { color:#f92672; }
+</style>
+</head>
+<body>
+
+<div id="toolbar">
+  <span class="title">Game Status</span>
+  <select id="clientSelect"><option value="">— select table —</option></select>
+  <button onclick="refreshClients()">Refresh</button>
+  <span id="statusLabel" class="status">Idle</span>
+</div>
+
+<div id="main">
+  <div id="timeline"></div>
+  <div id="detail"></div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var BROKER_MCP = 'http://localhost:3098/mcp';
+  var POLL_INTERVAL = 2000;
+  var MAX_SNAPSHOTS = 200;
+
+  var clientSelect = document.getElementById('clientSelect');
+  var timeline = document.getElementById('timeline');
+  var detail = document.getElementById('detail');
+  var statusLabel = document.getElementById('statusLabel');
+
+  var rpcId = 0;
+  var pollTimer = null;
+  var snapshots = [];
+  var selectedIdx = -1;
+  var lastHash = '';
+
+  // ── MCP HTTP Client ─────────────────────────────────────────────
+
+  async function mcpCall(method, params) {
+    var id = ++rpcId;
+    var body = { jsonrpc: '2.0', method: method, params: params || {}, id: id };
+    var headers = { 'Content-Type': 'application/json', 'Accept': 'application/json, text/event-stream' };
+    var resp = await fetch(BROKER_MCP, { method: 'POST', headers: headers, body: JSON.stringify(body) });
+    var ct = resp.headers.get('Content-Type') || '';
+
+    if (ct.indexOf('text/event-stream') >= 0) {
+      var reader = resp.body.getReader();
+      var decoder = new TextDecoder();
+      var buffer = '';
+      while (true) {
+        var chunk = await reader.read();
+        if (chunk.done) break;
+        buffer += decoder.decode(chunk.value, { stream: true });
+        var lines = buffer.split('\n');
+        buffer = lines.pop();
+        for (var i = 0; i < lines.length; i++) {
+          if (lines[i].indexOf('data: ') === 0) {
+            try {
+              var parsed = JSON.parse(lines[i].slice(6));
+              if (parsed.result !== undefined) { reader.cancel(); return parsed.result; }
+              if (parsed.error) { reader.cancel(); throw new Error(parsed.error.message || JSON.stringify(parsed.error)); }
+            } catch (e) { if (e.message) throw e; }
+          }
+        }
+      }
+      return null;
+    }
+
+    var json = await resp.json();
+    if (json.error) throw new Error(json.error.message || JSON.stringify(json.error));
+    return json.result;
+  }
+
+  async function callTool(name, args) {
+    var result = await mcpCall('tools/call', { name: name, arguments: args || {} });
+    if (result && result.content) {
+      for (var i = 0; i < result.content.length; i++) {
+        var c = result.content[i];
+        if (c.type === 'text') {
+          try { return JSON.parse(c.text); } catch (_) { return c.text; }
+        }
+      }
+    }
+    return result;
+  }
+
+  // ── Client Discovery ────────────────────────────────────────────
+
+  async function refreshClients() {
+    try {
+      var clients = await callTool('list_broker_clients');
+      if (!Array.isArray(clients)) return;
+
+      var prev = clientSelect.value;
+      while (clientSelect.options.length > 1) clientSelect.remove(1);
+
+      for (var i = 0; i < clients.length; i++) {
+        var c = clients[i];
+        var cid = typeof c === 'string' ? c : (c && c.clientId ? c.clientId : '');
+        // Only cwg-* clients, skip lobby
+        if (!cid || cid.indexOf('cwg-') !== 0 || cid === 'cwg-lobby') continue;
+        var opt = document.createElement('option');
+        opt.value = cid;
+        opt.textContent = cid;
+        clientSelect.appendChild(opt);
+      }
+
+      if (prev && clientSelect.querySelector('option[value="' + prev + '"]')) {
+        clientSelect.value = prev;
+      }
+    } catch (e) {
+      statusLabel.textContent = 'Error: ' + e.message;
+    }
+  }
+
+  // ── Polling ─────────────────────────────────────────────────────
+
+  function startPolling() {
+    stopPolling();
+    if (!clientSelect.value) return;
+    statusLabel.textContent = 'Polling...';
+    statusLabel.className = 'status polling';
+    poll();
+    pollTimer = setInterval(poll, POLL_INTERVAL);
+  }
+
+  function stopPolling() {
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    statusLabel.textContent = 'Idle';
+    statusLabel.className = 'status';
+  }
+
+  async function poll() {
+    var cid = clientSelect.value;
+    if (!cid) { stopPolling(); return; }
+
+    try {
+      var code = 'window.PodBayTableWatcher ? window.PodBayTableWatcher.gameStatus() : null';
+      var result = await callTool(cid + '__eval', { code: code });
+
+      if (!result || !result.success || !result.result) {
+        statusLabel.textContent = 'No table watcher on ' + cid;
+        return;
+      }
+
+      var gs;
+      try { gs = typeof result.result === 'string' ? JSON.parse(result.result) : result.result; } catch (_) { return; }
+
+      if (!gs || typeof gs !== 'object') return;
+
+      // Deduplicate: hash key fields
+      var hash = hashStatus(gs);
+      if (hash === lastHash) return;
+      lastHash = hash;
+
+      // Add snapshot
+      var snap = { time: new Date(), status: gs, hash: hash };
+      snapshots.unshift(snap);
+      if (snapshots.length > MAX_SNAPSHOTS) snapshots.pop();
+
+      renderTimeline();
+      // Auto-select latest
+      selectSnapshot(0);
+
+      statusLabel.textContent = 'Polling... (' + snapshots.length + ' snaps)';
+    } catch (e) {
+      statusLabel.textContent = 'Poll error: ' + e.message;
+    }
+  }
+
+  function hashStatus(gs) {
+    var parts = [
+      gs.street || '',
+      gs.pot || 0,
+      cardListStr(gs.communityCards),
+      gs.activeTurn ? gs.activeTurn.seat : -1,
+      (gs.players || []).length
+    ];
+    if (gs.players) {
+      for (var i = 0; i < gs.players.length; i++) {
+        var p = gs.players[i];
+        var pc = (p.cards || []).map(function(c) { return typeof c === 'string' ? c : (c && c.card ? c.card : '?'); }).join(',');
+        parts.push(p.seat + ':' + pc + ':' + (p.stack || 0));
+      }
+    }
+    return parts.join('|');
+  }
+
+  // Extract card strings from community or hole card arrays
+  function cardListStr(cards) {
+    if (!cards || !cards.length) return '';
+    return cards.map(function(c) {
+      if (!c) return '';
+      if (typeof c === 'string') return c;
+      return c.card || '';
+    }).filter(Boolean).join(' ');
+  }
+
+  // ── Timeline Rendering ──────────────────────────────────────────
+
+  function renderTimeline() {
+    timeline.innerHTML = '';
+    for (var i = 0; i < snapshots.length; i++) {
+      var snap = snapshots[i];
+      var gs = snap.status;
+      var el = document.createElement('div');
+      el.className = 'snap' + (i === selectedIdx ? ' active' : '');
+      el.dataset.idx = i;
+
+      var phase = gs.street || 'unknown';
+      var phaseClass = 'phase-' + phase.toLowerCase().replace(/[^a-z]/g, '');
+      if (!['preflop','flop','turn','river','showdown'].includes(phase.toLowerCase())) phaseClass = 'phase-unknown';
+
+      var time = snap.time.toLocaleTimeString();
+      var potStr = gs.pot != null ? '$' + gs.pot : '';
+      var playerCount = (gs.players || []).length;
+      var cc = cardListStr(gs.communityCards);
+
+      el.innerHTML =
+        '<div class="ts">' + time + '<span class="phase ' + phaseClass + '">' + phase + '</span></div>' +
+        '<div class="summary">' + playerCount + ' players' + (potStr ? ' · Pot ' + potStr : '') + (cc ? ' · ' + cc : '') + '</div>';
+
+      el.onclick = (function (idx) { return function () { selectSnapshot(idx); }; })(i);
+      timeline.appendChild(el);
+    }
+  }
+
+  function selectSnapshot(idx) {
+    selectedIdx = idx;
+    // Update active class
+    var items = timeline.querySelectorAll('.snap');
+    for (var i = 0; i < items.length; i++) {
+      items[i].className = 'snap' + (i === idx ? ' active' : '');
+    }
+    renderDetail(snapshots[idx]);
+  }
+
+  // ── Detail Rendering ───────────────────────────────────────────
+
+  function renderDetail(snap) {
+    if (!snap) { detail.innerHTML = ''; return; }
+    var gs = snap.status;
+    var html = '';
+
+    // Game Info
+    html += '<div class="section">';
+    html += '<div class="section-title">Game Info</div>';
+    html += kv('Time', snap.time.toLocaleString());
+    html += kv('Street', gs.street || 'unknown', true);
+    html += kv('Pot', gs.pot != null ? '$' + gs.pot : '—', true);
+    html += kv('Dealer Seat', gs.dealer && gs.dealer.seat != null ? '#' + gs.dealer.seat : '—');
+    html += kv('Small Blind', gs.sb && gs.sb.seat != null ? 'Seat #' + gs.sb.seat : '—');
+    html += kv('Big Blind', gs.bb && gs.bb.seat != null ? 'Seat #' + gs.bb.seat : '—');
+    html += kv('Active Turn', gs.activeTurn && gs.activeTurn.seat != null ? '#' + gs.activeTurn.seat + (gs.activeTurn.name ? ' (' + gs.activeTurn.name + ')' : '') : '—');
+    html += '</div>';
+
+    // Community Cards
+    html += '<div class="section">';
+    html += '<div class="section-title">Community Cards</div>';
+    var ccCards = extractCards(gs.communityCards);
+    html += '<div style="font-size:18px;letter-spacing:3px;padding:4px 0">' + (ccCards.length ? formatCards(ccCards) : '<span style="color:#555">none</span>') + '</div>';
+    html += '</div>';
+
+    // Players
+    html += '<div class="section">';
+    html += '<div class="section-title">Players (' + (gs.players || []).length + ')</div>';
+    html += '<table>';
+    html += '<tr><th>Seat</th><th>Name</th><th>Stack</th><th>Bet</th><th>Cards</th><th>Position</th><th>Action</th></tr>';
+    var players = gs.players || [];
+    for (var i = 0; i < players.length; i++) {
+      var p = players[i];
+      var isActive = p.isActiveTurn;
+      var isDealer = p.isDealer;
+      html += '<tr' + (isActive ? ' class="active-turn"' : '') + (isDealer ? ' class="dealer-seat"' : '') + '>';
+      html += '<td>#' + (p.seat != null ? p.seat : '?') + '</td>';
+      html += '<td>' + esc(p.name || '—') + '</td>';
+      html += '<td>' + (p.stack != null ? '$' + p.stack : '—') + '</td>';
+      html += '<td>' + (p.bet != null ? '$' + p.bet : '') + '</td>';
+      var pCards = extractCards(p.cards);
+      html += '<td>' + (pCards.length ? formatCards(pCards) : '<span style="color:#555">—</span>') + '</td>';
+      html += '<td>' + esc(p.position || '') + '</td>';
+      html += '<td>' + esc(p.lastAction || p.status || '') + '</td>';
+      html += '</tr>';
+    }
+    html += '</table>';
+    html += '</div>';
+
+    // Raw JSON
+    html += '<div class="section">';
+    html += '<div class="section-title">Raw JSON</div>';
+    html += '<pre style="font-size:11px;color:#888;white-space:pre-wrap;max-height:200px;overflow:auto">' + esc(JSON.stringify(gs, null, 2)) + '</pre>';
+    html += '</div>';
+
+    detail.innerHTML = html;
+  }
+
+  function kv(key, value, highlight) {
+    return '<div class="kv"><span class="k">' + esc(key) + '</span><span class="v' + (highlight ? ' highlight' : '') + '">' + esc(String(value)) + '</span></div>';
+  }
+
+  function esc(s) {
+    var d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+  // Extract string card names from community [{label,card}] or hole [{revealed,card}] arrays
+  function extractCards(arr) {
+    if (!arr || !arr.length) return [];
+    return arr.map(function(c) {
+      if (!c) return null;
+      if (typeof c === 'string') return c;
+      return c.card || null;
+    }).filter(function(c) { return c && c !== 'back'; });
+  }
+
+  function formatCards(cards) {
+    var out = '';
+    for (var i = 0; i < cards.length; i++) {
+      var c = String(cards[i]);
+      var isRed = c.indexOf('♥') >= 0 || c.indexOf('♦') >= 0;
+      out += '<span class="cards' + (isRed ? ' cards-red' : '') + '">' + esc(c) + '</span> ';
+    }
+    return out;
+  }
+
+  // ── Events ──────────────────────────────────────────────────────
+
+  clientSelect.onchange = function () {
+    snapshots = [];
+    selectedIdx = -1;
+    lastHash = '';
+    timeline.innerHTML = '';
+    detail.innerHTML = '';
+    startPolling();
+  };
+
+  // ── Init ────────────────────────────────────────────────────────
+
+  refreshClients();
+  setInterval(refreshClients, 10000);
+
+})();
+</script>
+</body>
+</html>

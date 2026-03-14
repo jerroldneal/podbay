@@ -34,3 +34,4 @@ services:
       - ./pod-editor.html:/usr/share/nginx/html/pod-editor.html:ro
       - ./plugin-editor.html:/usr/share/nginx/html/plugin-editor.html:ro
       - ./console.html:/usr/share/nginx/html/console.html:ro
+      - ./game-status.html:/usr/share/nginx/html/game-status.html:ro
