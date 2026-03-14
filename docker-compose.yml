@@ -14,12 +14,14 @@ services:
       # Mount host Electron app directories (adjust paths for your system)
       # Windows: mount LOCALAPPDATA\Programs for app discovery
       - "${LOCALAPPDATA}/Programs:/host/programs:rw"
-      # Mount pods directory so saves persist on the host
-      - ./pods:/app/pods:rw
       # Mount lib directory so plugin changes are live without rebuild
       - ./lib:/app/lib:rw
       # Mount registry so opt-in state survives rebuilds
       - ./.opted-in.json:/app/.opted-in.json:rw
+      # Mount pods directory so saves persist on the host
+      - ./pods:/app/pods:rw
+      # Mount plugins directory so saves persist on the host
+      - ./plugins:/app/plugins:rw
     network_mode: bridge
 
   dashboard:

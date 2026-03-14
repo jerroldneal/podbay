@@ -4,7 +4,7 @@
   "plugins": [
     {
       "type": "action-buttons",
-      "file": "lib/cwg-action.js",
+      "file": "plugins/cwg-action.js",
       "description": "Registers fold/call/check/raise/allin tools that click Cocos2d poker buttons via scene graph traversal and cc.Button._releaseAction()"
     }
   ]

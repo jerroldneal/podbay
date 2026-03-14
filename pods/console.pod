@@ -19,23 +19,28 @@
     },
     {
       "type": "identity",
-      "file": "lib/identity.js",
+      "file": "plugins/identity.js",
       "description": "Installs window.PodBayIdentity — CWG window identity detection from URL params"
     },
     {
       "type": "table-watcher",
-      "file": "lib/table-watcher.js",
+      "file": "plugins/table-watcher.js",
       "description": "Installs window.PodBayTableWatcher — Cocos2d scene graph poker table state extraction (tables only)"
     },
     {
       "type": "action-buttons",
-      "file": "lib/cwg-action.js",
+      "file": "plugins/cwg-action.js",
       "description": "Registers fold/call/check/raise/allin tools that click Cocos2d poker buttons via scene graph traversal and cc.Button._releaseAction()"
     },
     {
       "type": "console-bridge",
-      "file": "lib/console-bridge.js",
+      "file": "plugins/console-bridge.js",
       "description": "Composes bridge + hook to provide eval tools and console notification hooks"
+    },
+    {
+      "type": "greeting-file",
+      "file": "lib/greeting.js",
+      "description": "Registers a greeting tool with the MCP broker via the SDK (from external file)"
     }
   ]
 }

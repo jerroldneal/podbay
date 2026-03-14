@@ -178,10 +178,15 @@ const tools = [
         return { code: null, plugins: 0, codeLength: 0, pods: appPods };
       }
 
-      // Combine all plugin code into a single injectable bundle
+      // Combine all plugin code into a single injectable bundle.
+      // Each plugin is wrapped in its own IIFE + try-catch so that:
+      //   - a top-level `return` guard inside a plugin only exits that plugin's wrapper
+      //   - an uncaught exception in one plugin doesn't prevent subsequent plugins from running
       const parts = allPlugins.map(p => {
         const header = '// [PodBay] plugin: ' + (p.type || 'unknown') + ' — ' + (p.description || '');
-        return header + '\n' + p.code;
+        const safe = 'try { (function () {\n' + p.code + '\n})(); }'
+          + ' catch (__e) { console.error("[PodBay] plugin error [' + (p.type || 'unknown') + ']:", __e && __e.message); }';
+        return header + '\n' + safe;
       });
       const bundle = parts.join('\n\n');
 
