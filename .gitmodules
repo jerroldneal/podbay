@@ -16,3 +16,6 @@
 [submodule "workshops/telemetry-bus"]
 	path = workshops/telemetry-bus
 	url = https://github.com/jerroldneal/telemetry-bus.git
+[submodule "workshops/launch-code"]
+	path = workshops/launch-code
+	url = https://github.com/jerroldneal/launch-code.git
