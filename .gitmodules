@@ -22,3 +22,6 @@
 [submodule "workshops/agent-comms"]
 	path = workshops/agent-comms
 	url = https://github.com/jerroldneal/agent-comms.git
+[submodule "workshops/reverse-prompting"]
+	path = workshops/reverse-prompting
+	url = https://github.com/jerroldneal/reverse-prompting.git
