@@ -13,3 +13,6 @@
 [submodule "cwg-auto-iceberg-pro"]
 	path = cwg-auto-iceberg-pro
 	url = https://github.com/jerroldneal/cwg-auto-iceberg-pro.git
+[submodule "workshops/telemetry-bus"]
+	path = workshops/telemetry-bus
+	url = https://github.com/jerroldneal/telemetry-bus.git
