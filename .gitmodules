@@ -19,3 +19,6 @@
 [submodule "workshops/launch-code"]
 	path = workshops/launch-code
 	url = https://github.com/jerroldneal/launch-code.git
+[submodule "workshops/agent-comms"]
+	path = workshops/agent-comms
+	url = https://github.com/jerroldneal/agent-comms.git
