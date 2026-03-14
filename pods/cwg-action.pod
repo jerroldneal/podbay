@@ -1,0 +1,11 @@
+{
+  "name": "cwg-action",
+  "description": "Cocos2d poker button-clicking tools — fold, call, check, raise, allin via scene graph",
+  "plugins": [
+    {
+      "type": "action-buttons",
+      "file": "lib/cwg-action.js",
+      "description": "Registers fold/call/check/raise/allin tools that click Cocos2d poker buttons via scene graph traversal and cc.Button._releaseAction()"
+    }
+  ]
+}

@@ -55,6 +55,25 @@
   tr.dealer-seat td:first-child::after { content:' D'; color:#e6db74; font-weight:bold; }
   .cards { color:#a6e22e; font-weight:bold; letter-spacing:1px; }
   .cards-red { color:#f92672; }
+
+  /* Iceberg Decision Banner */
+  #icebergBanner { display:none; padding:8px 14px; border-bottom:1px solid #3c3c3c; font-size:13px; }
+  #icebergBanner.show { display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+  #icebergBanner .ib-action { font-size:16px; font-weight:bold; padding:2px 10px; border-radius:4px; letter-spacing:1px; }
+  #icebergBanner .ib-action.act-fold { background:#4a1a1a; color:#f92672; }
+  #icebergBanner .ib-action.act-check { background:#1a3a1a; color:#a6e22e; }
+  #icebergBanner .ib-action.act-call { background:#1a3a5c; color:#66d9ef; }
+  #icebergBanner .ib-action.act-bet { background:#4a3a1a; color:#e6db74; }
+  #icebergBanner .ib-action.act-allin { background:#5c1a1a; color:#ff5555; text-transform:uppercase; }
+  #icebergBanner .ib-reason { color:#aaa; font-size:12px; }
+  #icebergBanner .ib-meta { color:#888; font-size:11px; }
+  #icebergBanner .ib-meta span { margin-right:10px; }
+  #icebergBanner .ib-hand { color:#a6e22e; font-weight:bold; font-size:14px; letter-spacing:1px; }
+  #icebergBanner .ib-mode { font-size:11px; font-weight:bold; padding:1px 6px; border-radius:3px; }
+  #icebergBanner .ib-mode.mode-predator { background:#1a4a1a; color:#a6e22e; }
+  #icebergBanner .ib-mode.mode-prey { background:#3c3c3c; color:#888; }
+  #icebergBanner .ib-turn { font-size:11px; font-weight:bold; padding:1px 6px; border-radius:3px; background:#4a3a1a; color:#e6db74; animation:pulse 1s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
 </style>
 </head>
 <body>
@@ -62,8 +81,15 @@
 <div id="toolbar">
   <span class="title">Game Status</span>
   <select id="clientSelect"><option value="">— select table —</option></select>
-  <button onclick="refreshClients()">Refresh</button>
+  <button id="refreshBtn">Refresh</button>
+  <button id="autoPlayBtn" style="background:#3c3c3c;color:#d4d4d4;border:1px solid #555">AUTO: OFF</button>
+  <button id="dryrunBtn" style="background:#4a3a1a;color:#e6db74;border:1px solid #e6db74">DRY RUN: ON</button>
+  <span id="autoStatus" class="status"></span>
   <span id="statusLabel" class="status">Idle</span>
+</div>
+
+<div id="icebergBanner">
+  <span class="ib-label" style="color:#66d9ef;font-weight:bold">ICEBERG</span>
 </div>
 
 <div id="main">
@@ -84,11 +110,198 @@
   var detail = document.getElementById('detail');
   var statusLabel = document.getElementById('statusLabel');
 
+  var HERO_NAME = 'Viper9964';
+  var icebergBanner = document.getElementById('icebergBanner');
+
   var rpcId = 0;
   var pollTimer = null;
   var snapshots = [];
   var selectedIdx = -1;
   var lastHash = '';
+
+  // ── Iceberg Strategy Engine (inline) ────────────────────────────
+
+  var RANK_MAP = { '2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,'J':11,'Q':12,'K':13,'A':14 };
+  var SUIT_MAP = { '\u2663':0,'\u2660':1,'\u2666':2,'\u2665':3 };
+
+  function parseCard(str) {
+    if (!str || str === 'back') return null;
+    var suit = SUIT_MAP[str.slice(-1)];
+    var rank = RANK_MAP[str.slice(0, -1)];
+    if (suit === undefined || rank === undefined) return null;
+    return { suit: suit, rank: rank };
+  }
+
+  function parseStackNum(v) {
+    if (typeof v === 'number') return v;
+    if (!v) return 0;
+    return parseInt(String(v).replace(/,/g, ''), 10) || 0;
+  }
+
+  function icebergStrength(heroCards) {
+    if (!heroCards || heroCards.length < 2) return 0;
+    var r1 = heroCards[0].rank, r2 = heroCards[1].rank;
+    if (!r1 || !r2) return 0;
+    if (r1 === r2) {
+      if (r1 >= 11) return 9;
+      if (r1 >= 10) return 8;
+      if (r1 >= 8) return 7;
+      return 4;
+    }
+    var hi = Math.max(r1, r2), lo = Math.min(r1, r2);
+    if (hi === 14 && lo >= 13) return 9;
+    if (hi === 14 && lo >= 12) return 8;
+    if (hi === 14 && lo >= 11) return 7;
+    if (hi === 13 && lo >= 11) return 7;
+    return 3;
+  }
+
+  function shouldFoldToOvercards(heroCards, board) {
+    var r1 = heroCards[0].rank, r2 = heroCards[1].rank;
+    if (r1 !== r2 || r1 >= 13) return false;
+    var overcards = board.filter(function(c) { return c.rank > r1; });
+    return overcards.length >= 2 || (overcards.length === 1 && overcards[0].rank >= 13);
+  }
+
+  function calcPercentile(heroStack, players) {
+    var stacks = players
+      .map(function(p) { return parseStackNum(p.stack); })
+      .filter(function(s) { return s > 0; })
+      .sort(function(a, b) { return a - b; });
+    if (stacks.length <= 1) return 0.5;
+    var idx = 0;
+    for (var i = 0; i < stacks.length; i++) { if (stacks[i] >= heroStack) { idx = i; break; } }
+    return idx / (stacks.length - 1);
+  }
+
+  function deriveBlinds(players) {
+    var sb = 0, bb = 0;
+    for (var i = 0; i < players.length; i++) {
+      var p = players[i], bet = parseStackNum(p.bet);
+      if (p.isSB && bet > 0) sb = bet;
+      if (p.isBB && bet > 0) bb = bet;
+    }
+    if (bb > 0 && sb === 0) sb = Math.floor(bb / 2);
+    if (bb === 0) {
+      var active = players.filter(function(p) { return parseStackNum(p.stack) > 0; });
+      var avg = active.reduce(function(s, p) { return s + parseStackNum(p.stack); }, 0) / (active.length || 1);
+      bb = Math.max(200, Math.floor(avg / 50));
+      sb = Math.floor(bb / 2);
+    }
+    return { sb: sb, bb: bb, ante: 0 };
+  }
+
+  function icebergDecide(gs) {
+    var players = gs.players || [];
+    var hero = null;
+    for (var i = 0; i < players.length; i++) {
+      if (players[i].name === HERO_NAME) { hero = players[i]; break; }
+    }
+    if (!hero) return null;
+
+    // Parse hero cards
+    var rawCards = (hero.cards || []).filter(function(c) { return c.revealed && c.card !== 'back'; });
+    var heroCards = rawCards.map(function(c) { return parseCard(c.card); }).filter(function(c) { return c !== null; });
+
+    // Compute helper values
+    var heroStack = parseStackNum(hero.stack);
+    var heroBet = parseStackNum(hero.bet);
+    var maxBet = 0;
+    for (var i = 0; i < players.length; i++) {
+      var b = parseStackNum(players[i].bet);
+      if (b > maxBet) maxBet = b;
+    }
+    var canCheck = heroBet >= maxBet;
+    var amountToCall = Math.max(0, maxBet - heroBet);
+    var checkOrFold = canCheck ? 'CHECK' : 'FOLD';
+
+    // Opponents
+    var opponents = players.filter(function(p) {
+      return p.name !== HERO_NAME && p.stateMsg !== 'Fold' && p.cards && p.cards.length > 0;
+    });
+    var maxOppStack = 0;
+    for (var i = 0; i < opponents.length; i++) {
+      var os = parseStackNum(opponents[i].stack);
+      if (os > maxOppStack) maxOppStack = os;
+    }
+    var isOppBigger = maxOppStack > heroStack;
+
+    // Board
+    var board = (gs.communityCards || [])
+      .map(function(c) { return c.card ? parseCard(c.card) : null; })
+      .filter(function(c) { return c !== null; });
+
+    var street = gs.street || null;
+    var pot = parseStackNum(gs.pot);
+
+    // Hero hand description
+    var heroHand = '';
+    if (heroCards.length >= 2) {
+      var RNAMES = {2:'2',3:'3',4:'4',5:'5',6:'6',7:'7',8:'8',9:'9',10:'10',11:'J',12:'Q',13:'K',14:'A'};
+      var SSYMS = {0:'\u2663',1:'\u2660',2:'\u2666',3:'\u2665'};
+      heroHand = (RNAMES[heroCards[0].rank]||'?') + (SSYMS[heroCards[0].suit]||'') + ' ' +
+                 (RNAMES[heroCards[1].rank]||'?') + (SSYMS[heroCards[1].suit]||'');
+    }
+
+    var isHeroTurn = !!(hero.isActiveTurn && hero.timerVisible);
+
+    if (heroCards.length < 2) {
+      return { action: checkOrFold, reason: 'No visible cards', mode: 'PREY', mRatio: 0, strength: 0, hand: heroHand, isHeroTurn: isHeroTurn };
+    }
+
+    var strength = icebergStrength(heroCards);
+    var percentile = calcPercentile(heroStack, players);
+    var mode = percentile >= 0.85 ? 'PREDATOR' : 'PREY';
+    var blinds = deriveBlinds(players);
+    var mRatio = heroStack / ((blinds.sb + blinds.bb + blinds.ante) || 1600);
+
+    if (strength === 0) {
+      return { action: checkOrFold, reason: 'Unknown cards', mode: mode, mRatio: mRatio, strength: strength, hand: heroHand, isHeroTurn: isHeroTurn };
+    }
+    if (strength < 9) {
+      return { action: checkOrFold, reason: 'Below JJ+ — check/fold', mode: mode, mRatio: mRatio, strength: strength, hand: heroHand, isHeroTurn: isHeroTurn };
+    }
+    if (street && street !== 'preflop' && board.length > 0) {
+      if (shouldFoldToOvercards(heroCards, board)) {
+        return { action: checkOrFold, reason: 'Scary overcards — protect pair', mode: mode, mRatio: mRatio, strength: strength, hand: heroHand, isHeroTurn: isHeroTurn };
+      }
+    }
+    if (isOppBigger) {
+      return { action: checkOrFold, reason: 'Outchipped — check/fold', mode: mode, mRatio: mRatio, strength: strength, hand: heroHand, isHeroTurn: isHeroTurn };
+    }
+    if (mRatio < 5 && strength >= 7) {
+      return { action: 'ALLIN', reason: 'Low M (' + mRatio.toFixed(1) + ') — shove', mode: mode, mRatio: mRatio, strength: strength, hand: heroHand, isHeroTurn: isHeroTurn };
+    }
+    if (canCheck) {
+      var betAmt = Math.floor(pot * 0.5) || blinds.bb * 3;
+      return { action: 'BET', reason: 'Premium + chip lead — bet', mode: mode, mRatio: mRatio, strength: strength, hand: heroHand, isHeroTurn: isHeroTurn, betAmount: betAmt };
+    }
+    if (amountToCall <= pot * 0.4) {
+      return { action: 'CALL', reason: 'Premium + chip lead — call', mode: mode, mRatio: mRatio, strength: strength, hand: heroHand, isHeroTurn: isHeroTurn };
+    }
+    return { action: 'FOLD', reason: 'Premium but huge raise — fold', mode: mode, mRatio: mRatio, strength: strength, hand: heroHand, isHeroTurn: isHeroTurn };
+  }
+
+  function updateIcebergBanner(gs) {
+    var d = icebergDecide(gs);
+    if (!d) { icebergBanner.className = ''; return; }
+    icebergBanner.className = 'show';
+
+    var actClass = 'act-' + d.action.toLowerCase();
+    if (d.action === 'ALLIN') actClass = 'act-allin';
+
+    var html = '<span class="ib-label" style="color:#66d9ef;font-weight:bold">ICEBERG</span>';
+    if (d.isHeroTurn) html += '<span class="ib-turn">YOUR TURN</span>';
+    if (d.hand) html += '<span class="ib-hand">' + esc(d.hand) + '</span>';
+    html += '<span class="ib-action ' + actClass + '">' + esc(d.action) + '</span>';
+    html += '<span class="ib-reason">' + esc(d.reason) + '</span>';
+    html += '<span class="ib-mode mode-' + d.mode.toLowerCase() + '">' + esc(d.mode) + '</span>';
+    html += '<span class="ib-meta"><span>STR ' + d.strength + '</span><span>M ' + d.mRatio.toFixed(1) + '</span>';
+    if (d.betAmount) html += '<span>BET $' + d.betAmount + '</span>';
+    html += '</span>';
+
+    icebergBanner.innerHTML = html;
+  }
 
   // ── MCP HTTP Client ─────────────────────────────────────────────
 
@@ -217,6 +430,17 @@
       renderTimeline();
       // Auto-select latest
       selectSnapshot(0);
+      // Update Iceberg decision
+      updateIcebergBanner(gs);
+
+      // Auto-play: execute action if it's our turn and we haven't acted yet this hand state
+      if (autoEnabled) {
+        var autoDecision = icebergDecide(gs);
+        if (autoDecision && autoDecision.isHeroTurn && hash !== lastActedHash) {
+          lastActedHash = hash;
+          executeAutoAction(cid, autoDecision);
+        }
+      }
 
       statusLabel.textContent = 'Polling... (' + snapshots.length + ' snaps)';
     } catch (e) {
@@ -380,6 +604,62 @@
     return out;
   }
 
+  // ── Auto-Play ─────────────────────────────────────────────────────
+
+  var autoEnabled = false;
+  var autoDryrun = true;  // safe default: dry-run on until user turns off
+  var lastActedHash = '';
+  var autoPlayBtn = document.getElementById('autoPlayBtn');
+  var dryrunBtn = document.getElementById('dryrunBtn');
+  var autoStatusEl = document.getElementById('autoStatus');
+
+  // Iceberg action → registered broker tool name (via window.__podBay.registerTool in cwg-action.js)
+  var ACTION_TO_TOOL = { FOLD: 'fold', CHECK: 'call', CALL: 'call', BET: 'call', ALLIN: 'allin' };
+
+  autoPlayBtn.onclick = function () {
+    autoEnabled = !autoEnabled;
+    autoPlayBtn.textContent = 'AUTO: ' + (autoEnabled ? 'ON' : 'OFF');
+    autoPlayBtn.style.background = autoEnabled ? '#1a4a1a' : '#3c3c3c';
+    autoPlayBtn.style.color = autoEnabled ? '#a6e22e' : '#d4d4d4';
+    autoPlayBtn.style.borderColor = autoEnabled ? '#a6e22e' : '#555';
+  };
+
+  dryrunBtn.onclick = function () {
+    autoDryrun = !autoDryrun;
+    dryrunBtn.textContent = 'DRY RUN: ' + (autoDryrun ? 'ON' : 'OFF');
+    dryrunBtn.style.background = autoDryrun ? '#4a3a1a' : '#3c3c3c';
+    dryrunBtn.style.color = autoDryrun ? '#e6db74' : '#d4d4d4';
+    dryrunBtn.style.borderColor = autoDryrun ? '#e6db74' : '#555';
+  };
+
+  async function executeAutoAction(clientId, decision) {
+    var toolName = ACTION_TO_TOOL[decision.action] || 'fold';
+
+    if (autoDryrun) {
+      autoStatusEl.textContent = '[DRY] ' + decision.action + ' → ' + toolName;
+      autoStatusEl.style.color = '#888';
+      return;
+    }
+
+    autoStatusEl.textContent = 'Clicking ' + decision.action + '...';
+    autoStatusEl.style.color = '#e6db74';
+
+    try {
+      var result = await callTool(clientId + '__' + toolName, {});
+
+      if (!result || !result.success) {
+        autoStatusEl.textContent = 'Failed: ' + JSON.stringify(result);
+        autoStatusEl.style.color = '#f92672';
+      } else {
+        autoStatusEl.textContent = '✓ ' + decision.action + ' → ' + (result.node || toolName);
+        autoStatusEl.style.color = '#a6e22e';
+      }
+    } catch (e) {
+      autoStatusEl.textContent = 'Error: ' + e.message;
+      autoStatusEl.style.color = '#f92672';
+    }
+  }
+
   // ── Events ──────────────────────────────────────────────────────
 
   clientSelect.onchange = function () {
@@ -393,6 +673,7 @@
 
   // ── Init ────────────────────────────────────────────────────────
 
+  document.getElementById('refreshBtn').onclick = function () { refreshClients(); };
   refreshClients();
   setInterval(refreshClients, 10000);
 

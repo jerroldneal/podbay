@@ -28,6 +28,11 @@
       "description": "Installs window.PodBayTableWatcher — Cocos2d scene graph poker table state extraction (tables only)"
     },
     {
+      "type": "action-buttons",
+      "file": "lib/cwg-action.js",
+      "description": "Registers fold/call/check/raise/allin tools that click Cocos2d poker buttons via scene graph traversal and cc.Button._releaseAction()"
+    },
+    {
       "type": "console-bridge",
       "file": "lib/console-bridge.js",
       "description": "Composes bridge + hook to provide eval tools and console notification hooks"
