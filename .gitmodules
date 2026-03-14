@@ -7,3 +7,9 @@
 [submodule "cwg-table-helper"]
 	path = cwg-table-helper
 	url = https://github.com/jerroldneal/cwg-table-helper.git
+[submodule "workshops/clubwptgold-action"]
+	path = workshops/clubwptgold-action
+	url = https://github.com/jerroldneal/clubwptgold-action.git
+[submodule "cwg-auto-iceberg-pro"]
+	path = cwg-auto-iceberg-pro
+	url = https://github.com/jerroldneal/cwg-auto-iceberg-pro.git
