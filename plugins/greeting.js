@@ -1,31 +1,19 @@
-
+// Recipe 2 — Client with one tool
 (function () {
-  alert('Hello from the greeting plugin! This plugin registers a "greet-from-file" tool with the MCP broker that returns a greeting message. Check the console for details.');
   var client = new window.PodBayBrokerClient({
-    clientId: 'example-pod',
-    tools: [
-      {
-        name: 'greet-from-file',
-        description: 'Returns a greeting message',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            name: {
-              type: 'string',
-              description: 'Name to greet'
-            }
-          },
-          required: ['name']
-        },
-        handler: function (args) {
-          var msg = 'Hello, ' + (args.name || 'World') + '! Greetings from PodBay example pod.';
-          console.log('[PodBay] ' + msg);
-          return { greeting: msg };
-        }
+    clientId: 'greeter',
+    tools: [{
+      name: 'say_hello',
+      description: 'Returns a greeting',
+      inputSchema: {
+        type: 'object',
+        properties: { name: { type: 'string', description: 'Who to greet' } },
+        required: ['name']
+      },
+      handler: function (args) {
+        return { greeting: 'Hello, ' + args.name };
       }
-    ]
+    }]
   });
   client.connect();
-  console.log('[PodBay] Example pod greeting tool registered with broker');
-  window.greetingClientPlugin = client; // expose for testing
 })();

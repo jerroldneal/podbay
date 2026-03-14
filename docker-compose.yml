@@ -37,3 +37,6 @@ services:
       - ./plugin-editor.html:/usr/share/nginx/html/plugin-editor.html:ro
       - ./console.html:/usr/share/nginx/html/console.html:ro
       - ./game-status.html:/usr/share/nginx/html/game-status.html:ro
+      - ./broker-client-dashboard.html:/usr/share/nginx/html/broker-client-dashboard.html:ro
+      - ./workshops/telemetry-bus/lib/bus.js:/usr/share/nginx/html/lib/bus.js:ro
+      - ./workshops/telemetry-bus/telemetry-dashboard.html:/usr/share/nginx/html/telemetry-dashboard.html:ro
