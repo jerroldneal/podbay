@@ -6,6 +6,11 @@
       "type": "action-buttons",
       "file": "plugins/cwg-action.js",
       "description": "Registers fold/call/check/raise/allin tools that click Cocos2d poker buttons via scene graph traversal and cc.Button._releaseAction()"
+    },
+    {
+      "type": "broker-client-sdk",
+      "file": "plugins/broker-dashboard.js",
+      "description": "Installs window.PodBayBrokerClient and registers a dashboard tool for monitoring broker activity and client state"
     }
   ]
 }

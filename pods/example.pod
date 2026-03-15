@@ -8,24 +8,9 @@
       "description": "Installs window.PodBayBrokerClient for plugin tool publishing"
     },
     {
-      "type": "greeting-x",
-      "code": "(function(){alert('at greeting code X');var client=new window.PodBayBrokerClient({clientId:'example-pod-code1',tools:[{name:'greet',description:'Returns a greeting message',inputSchema:{type:'object',properties:{name:{type:'string',description:'Name to greet'}},required:['name']},handler:function(args){var msg='Hello, '+(args.name||'World')+'! Greetings from PodBay example pod.';console.log('[PodBay] '+msg);return{greeting:msg};}}]});alert('at greeting code X2');client.connect();alert('at greeting code X3');console.log('[PodBay] Example pod greeting tool registered with broker');alert('at greeting code X4');})()",
-      "description": "Registers a greeting tool with the MCP broker via the SDK"
-    },
-    {
       "type": "greeting",
-      "code": "(function(){alert('at greeting code');var client=new window.PodBayBrokerClient({clientId:'example-pod-code2',tools:[{name:'greet',description:'Returns a greeting message',inputSchema:{type:'object',properties:{name:{type:'string',description:'Name to greet'}},required:['name']},handler:function(args){var msg='Hello, '+(args.name||'World')+'! Greetings from PodBay example pod.';console.log('[PodBay] '+msg);return{greeting:msg};}}]});client.connect();console.log('[PodBay] Example pod greeting tool registered with broker');})()",
-      "description": "Registers a greeting tool with the MCP broker via the SDK"
-    },
-    {
-      "type": "greeting-file",
       "file": "lib/greeting.js",
       "description": "Registers a greeting tool with the MCP broker via the SDK (from external file)"
-    },
-    {
-      "type": "greetings",
-      "code": "(function(){alert('at greeting code 2');var client=new window.PodBayBrokerClient({clientId:'example-pod-code3',tools:[{name:'greet',description:'Returns a greeting message',inputSchema:{type:'object',properties:{name:{type:'string',description:'Name to greet'}},required:['name']},handler:function(args){var msg='Hello, '+(args.name||'World')+'! Greetings from PodBay example pod.';console.log('[PodBay] '+msg);return{greeting:msg};}}]});client.connect();console.log('[PodBay] Example pod greeting tool registered with broker');})()",
-      "description": "Registers a greeting tool with the MCP broker via the SDK"
     }
   ]
 }
