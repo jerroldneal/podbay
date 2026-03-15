@@ -25,3 +25,6 @@
 [submodule "workshops/reverse-prompting"]
 	path = workshops/reverse-prompting
 	url = https://github.com/jerroldneal/reverse-prompting.git
+[submodule "workshops/extracted-app"]
+	path = workshops/extracted-app
+	url = https://github.com/jerroldneal/extracted-app.git
