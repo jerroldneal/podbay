@@ -3,8 +3,10 @@
     "asarPath": "/host/programs/clubwpt-desktop/resources/app.asar",
     "pods": [
       "console.pod",
-      "example.pod",
-      "cwg-action.pod"
+      "cwg-action.pod",
+      "card-capture.pod",
+      "cwg-cards-minimal.pod",
+      "cwg-plugin-library.pod"
     ]
   }
 }
