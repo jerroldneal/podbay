@@ -13,6 +13,16 @@
       "description": "Accumulated game status snapshot from protobuf wire events — phase, seats, pot, community cards, hero hole cards, action options (signal-fetch, 3 MCP tools)"
     },
     {
+      "type": "cwg-room-config",
+      "file": "plugins/cwg/cwg-room-config.js",
+      "description": "Room configuration snapshot from EnterRoomRes/RoomSnapshotMsg — roomId, gameType, limitType, blinds, ante, buyIn range, seat count, timeLimit, tourId, tourName (1 MCP tool)"
+    },
+    {
+      "type": "cwg-tournament-status",
+      "file": "plugins/cwg/cwg-tournament-status.js",
+      "description": "Tournament structure and live progress — blind level, sb/bb/ante, level time remaining, players entered/running/eliminated, prize pool, hero M-ratio and rank (3 MCP tools)"
+    },
+    {
       "type": "cwg-core",
       "file": "plugins/cwg/cwg-core.js",
       "description": "Cocos2d scene utilities shared by all cwg plugins (findNode, getText, getGameView, enableParentChain)"
