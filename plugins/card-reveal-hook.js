@@ -76,6 +76,19 @@
     return parts.join('/');
   }
 
+  // Returns first N ancestor names for scene hierarchy debugging.
+  function parentNames(node, limit) {
+    var names = [];
+    var n = node._parent;
+    var depth = 0;
+    while (n && depth < (limit || 8)) {
+      names.push(nodeName(n) || '(unnamed)');
+      n = n._parent;
+      depth++;
+    }
+    return names;
+  }
+
   // Walk ancestors to find a player seat index via holdem_player_pkw parent.
   // Returns -1 if this sprite is not inside a player seat container.
   function resolveSeatIndex(node) {
@@ -121,6 +134,8 @@
       frameId: frameId,
       frameName: frameName,
       nodePath: path,
+      nodeId: node._id,     // Cocos2d unique node ID — use to identify individual sprites
+      parentNames: parentNames(node, 6),  // ancestor names for scene hierarchy debugging
       seatIndex: seat,
       handIndex: handIndex
     };
