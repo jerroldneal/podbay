@@ -178,7 +178,22 @@
   var _lastFaceTs = {};          // nodeId → performance.now() at time of last face assignment
   // End-of-hand covers happen >50ms after the face; deal-time covers happen within ~1ms.
   var COVER_END_OF_HAND_THRESHOLD_MS = 50;
+  // After end-of-hand covers are detected, wait this long before auto-advancing handIndex.
+  // Cancelled if new face (deal) events arrive sooner.
+  var NEW_HAND_DEBOUNCE_MS = 800;
+  var _newHandTimer = null;
   var _hookInstalled = false;
+
+  function scheduleNewHand() {
+    if (_newHandTimer) clearTimeout(_newHandTimer);
+    _newHandTimer = setTimeout(function () {
+      _newHandTimer = null;
+      _faceSeenThisHand = {};
+      _lastFaceTs = {};
+      handIndex++;
+      console.log('[PodBay CardRevealHook] auto new hand → handIndex=' + handIndex);
+    }, NEW_HAND_DEBOUNCE_MS);
+  }
 
   function installHook() {
     if (_hookInstalled) return;
@@ -230,6 +245,8 @@
               if (msSinceFace > COVER_END_OF_HAND_THRESHOLD_MS) {
                 delete _faceSeenThisHand[nodeId];
                 delete _lastFaceTs[nodeId];
+                // Schedule a new-hand transition — fires after 800ms of silence
+                scheduleNewHand();
               }
             }
             return;
@@ -247,6 +264,8 @@
             appendEntry('reveal', frameId, sfName, this);
           } else {
             // First face assignment = the ~1ms true card flash
+            // Cancel any pending new-hand timer — we are still in the current hand
+            if (_newHandTimer) { clearTimeout(_newHandTimer); _newHandTimer = null; }
             _faceSeenThisHand[nodeId] = true;
             _lastFaceTs[nodeId] = performance.now();
             appendEntry('face', frameId, sfName, this);
