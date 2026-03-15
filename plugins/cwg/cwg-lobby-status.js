@@ -39,9 +39,9 @@
       info = msg;
     }
 
-    var name = info.displayName || info.name || info.nickName || null;
-    var uid = info.userId || info.uid || msg.userId || null;
-    var free = info.freeChips || info.goldCoin || info.chips || null;
+    var name = info.displayName || info.playerName || info.name || info.nickName || null;
+    var uid = info.userId || info.playerId || info.uid || msg.userId || msg.playerId || null;
+    var free = info.freeChips || info.goldCoin || info.chips || info.stack || info.coin || null;
     var paid = info.paidChips || info.paidCoin || null;
     var total = info.totalBalance || info.totalChips || info.balance || null;
 
@@ -71,16 +71,37 @@
 
     seats.forEach(function (seat) {
       if (!seat) return;
-      var uid = String(seat.userId || seat.playerId || '');
+      var uid = String(seat.userId || seat.playerId || seat.uid || '');
       if (heroId && uid !== heroId) return;
 
-      var name = seat.displayName || seat.name || seat.nickName;
+      var name = seat.displayName || seat.playerName || seat.name || seat.nickName;
+      var chips = seat.stack || seat.coin || seat.chips || seat.freeChips || null;
       if (name && !_account.displayName) {
         _account.displayName = String(name);
-        _account.userId = uid;
+        _account.userId = uid || null;
+        if (chips != null) _account.freeChips = Number(chips);
+        _account.ts = Date.now();
+      } else if (uid && uid === heroId && chips != null && _account.freeChips == null) {
+        _account.freeChips = Number(chips);
         _account.ts = Date.now();
       }
     });
+  });
+
+  // ── HoleCardListMsg (50037) — identifies hero + carries stack ────────────
+  CWGProtoTap.on('HoleCardListMsg', function (decoded) {
+    var msg = decoded.msg;
+    if (!msg) return;
+
+    // This message is sent to the hero only — reliable source of hero stack
+    var stack = msg.stack != null ? Number(msg.stack) : null;
+    var uid = msg.userId || msg.playerId || msg.uid || null;
+    var name = msg.displayName || msg.playerName || msg.name || msg.nickName || null;
+
+    if (stack != null) _account.freeChips = stack;
+    if (uid && !_account.userId) _account.userId = String(uid);
+    if (name && !_account.displayName) _account.displayName = String(name);
+    if (stack != null || uid || name) _account.ts = Date.now();
   });
 
   // ── TournamentInfoMsg (50122) — tournament list snapshots ─────────────────
