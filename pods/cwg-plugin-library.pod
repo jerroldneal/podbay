@@ -101,6 +101,11 @@
       "type": "cwg-pre-raise",
       "file": "plugins/cwg/cwg-pre-raise.js",
       "description": "MCP tool: pre_raise — arm or disarm the pre-all-in toggle"
+    },
+    {
+      "type": "cwg-smoke-test",
+      "file": "plugins/cwg/cwg-smoke-test.js",
+      "description": "MCP tool: run_smoke_test — verifies all infrastructure globals and hook plugins are loaded correctly"
     }
   ]
 }
