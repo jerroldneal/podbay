@@ -100,11 +100,12 @@
     arr.push(card);
   }
 
-  function logEvent(card, seat) {
+  function logEvent(card, seat, frameId) {
     var entry = {
       t: Date.now(),
       clock: new Date().toTimeString().slice(0, 8),
-      card: card,
+      frameId: frameId,
+      card: card,       // null when frameId is not in the card atlas
       seat: seat || 'undefined'
     };
     window.__cardLog.push(entry);
@@ -136,19 +137,20 @@
         origSet.call(this, v); // always call original — never swallow engine behaviour
         if (!v) return;
 
-        // decode() returns null for back-face and non-card frames.
-        // Returning here means only the real card assignment ever reaches addToSeat.
-        // This null-filter IS the persistence mechanism (from the Addendum).
-        var card = decode(parseInt(v._name || v.name || '', 10));
-        if (!card) return;
+        // Filter only on isNaN — matches Step 1 proof-of-concept.
+        // Non-numeric names (e.g. 'cards_back_0') naturally produce NaN and are skipped.
+        // All other numeric frame IDs are logged, whether or not they map to a known card.
+        var frameId = parseInt(v._name || v.name || '', 10);
+        if (isNaN(frameId)) return;
 
+        var card = decode(frameId); // may be null for numeric IDs outside the card atlas
         var seat = findSeat(this.node) || 'undefined';
-        addToSeat(seat, card);
-        var entry = logEvent(card, seat);
-        console.log('[CWG-Minimal]', entry.seat, '→', card);
+        if (card) addToSeat(seat, card); // only track known cards in __allCards
+        var entry = logEvent(card, seat, frameId);
+        console.log('[CWG-Minimal]', entry.seat, '→', card || frameId);
         // Push to broker activity feed so the dashboard lights up in real-time
         if (_brokerClient) {
-          _brokerClient.notify({ type: 'card', seat: entry.seat, card: card, clock: entry.clock });
+          _brokerClient.notify({ type: 'card', seat: entry.seat, card: card, frameId: frameId, clock: entry.clock });
         }
       }
     });
