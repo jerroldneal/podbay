@@ -128,17 +128,11 @@
       return;
     }
 
-    var origGet = desc.get;
     var origSet = desc.set;
     Object.defineProperty(proto, 'spriteFrame', {
       configurable: true,
       enumerable: desc.enumerable,
-      get: function () {
-        var result = origGet.call(this);
-        var name = result ? (result._name || result.name || '(no name)') : result;
-        console.log('[CWG-Get]', 'spriteFrame read →', name, 'node=', this.node ? this.node.name : this.node);
-        return result;
-      },
+      get: desc.get,
       set: function (v) {
         origSet.call(this, v); // always call original — never swallow engine behaviour
 
