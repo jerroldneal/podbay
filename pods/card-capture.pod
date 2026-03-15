@@ -1,0 +1,16 @@
+{
+  "name": "card-capture",
+  "description": "Captures Cocos2d spriteFrame assignments to reveal opponent hole cards during the ~1ms window before the back-face texture covers them. Registers get_card_log, clear_card_log, and get_hook_status MCP tools.",
+  "plugins": [
+    {
+      "type": "broker-client-sdk",
+      "file": "lib/broker-client.js",
+      "description": "Installs window.PodBayBrokerClient for MCP tool registration"
+    },
+    {
+      "type": "card-reveal-hook",
+      "file": "plugins/card-reveal-hook.js",
+      "description": "Hooks cc.Sprite.prototype spriteFrame setter to capture card identities at the sub-millisecond deal window"
+    }
+  ]
+}
