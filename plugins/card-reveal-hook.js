@@ -241,6 +241,7 @@
           holderType: holderType,
           scale: scale,
           spriteId: this.sprite ? this.sprite._id : null,
+          seatIndex: spriteNode ? resolveSeatIndex(spriteNode) : -1,
           nodePath: spriteNode ? nodePath(spriteNode) : '',
           handIndex: handIndex
         };
@@ -577,6 +578,40 @@
               handIndex: handIndex,
               flipHookInstalled: _flipHookInstalled,
               entries: entries
+            };
+          }
+        },
+        {
+          name: 'get_opponent_hole_cards',
+          description: 'Returns opponent hole cards inferred from flipCardAction calls. Only includes holderType:hide entries (cards dealt to opponents and covered — never visibly shown). Groups by handIndex and seatIndex. This is pure observation — no cards are flipped or modified.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              handIndex: {
+                type: 'number',
+                description: 'Which hand to query (default: current/latest)'
+              }
+            }
+          },
+          handler: function (args) {
+            var targetHand = (args && args.handIndex !== undefined) ? args.handIndex : handIndex;
+            // Collect all hide-type flips for target hand
+            var byHand = {};
+            for (var i = 0; i < flipLog.length; i++) {
+              var e = flipLog[i];
+              if (e.holderType !== 'hide') continue;
+              var hi = e.handIndex;
+              if (!byHand[hi]) byHand[hi] = {};
+              var si = e.seatIndex;
+              // Keep ALL cards per seat (a seat gets 2 hole cards)
+              if (!byHand[hi][si]) byHand[hi][si] = [];
+              byHand[hi][si].push({ card: e.card, cardId: e.cardId, clock: e.clock, ts: e.ts });
+            }
+            return {
+              handIndex: targetHand,
+              flipHookInstalled: _flipHookInstalled,
+              seats: byHand[targetHand] || {},
+              allHands: Object.keys(byHand).map(Number)
             };
           }
         },
