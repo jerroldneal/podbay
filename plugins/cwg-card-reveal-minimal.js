@@ -77,6 +77,7 @@
 
   // ── State ─────────────────────────────────────────────────────────────
   var LOG_LIMIT = 50;
+  var _brokerClient = null;  // set once broker registers — used for notify() calls
 
   // The main output: current hand's cards per seat
   window.__allCards = {};   // { 'seat_0': ['A♠','K♥'], 'community': ['Q♦','J♣','10♥'] }
@@ -145,6 +146,10 @@
         addToSeat(seat, card);
         var entry = logEvent(card, seat);
         console.log('[CWG-Minimal]', entry.seat, '→', card);
+        // Push to broker activity feed so the dashboard lights up in real-time
+        if (_brokerClient) {
+          _brokerClient.notify({ type: 'card', seat: entry.seat, card: card, clock: entry.clock });
+        }
       }
     });
 
@@ -234,6 +239,7 @@
     });
 
     client.connect();
+    _brokerClient = client;  // share reference so hook setter can call notify()
     console.log('[CWG-Minimal] MCP tools registered as "cwg-cards-minimal"');
   }
 
