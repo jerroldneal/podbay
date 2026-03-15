@@ -28,3 +28,6 @@
 [submodule "workshops/extracted-app"]
 	path = workshops/extracted-app
 	url = https://github.com/jerroldneal/extracted-app.git
+[submodule ".status-reports"]
+	path = .status-reports
+	url = https://github.com/jerroldneal/status-reports.git
