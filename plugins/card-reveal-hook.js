@@ -21,7 +21,7 @@
  *   window.PodBayCardRevealHook    — { status(), clear(), pause(), resume() }
  *
  * Log entry shape:
- *   { ts, wallMs, event, card, frameId, frameName, nodePath, seatIndex, handIndex }
+ *   { ts, wallMs, clock, event, card, frameId, frameName, nodePath, seatIndex, handIndex }
  *
  * MCP Tool Registration:
  *   Registers with the MCP broker as "card-capture" client with tools:
@@ -110,9 +110,12 @@
     var card = frameIdToCard(frameId);
     var path = nodePath(node);
     var seat = resolveSeatIndex(node);
+    var now = new Date();
+    var clock = now.toTimeString().slice(0, 8); // hh:mm:ss
     var entry = {
       ts: performance.now(),
       wallMs: Date.now(),
+      clock: clock,
       event: event,          // 'face' | 'cover' | 'reveal' | 'unknown'
       card: card,           // e.g. 'As', null for non-card frames
       frameId: frameId,
