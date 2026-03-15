@@ -70,7 +70,7 @@
     while (n && depth < 12) {
       var nm = nodeName(n);
       if (nm) parts.unshift(nm);
-      n = n._parent;
+      n = n.parent || n._parent;
       depth++;
     }
     return parts.join('/');
@@ -79,11 +79,11 @@
   // Returns first N ancestor names for scene hierarchy debugging.
   function parentNames(node, limit) {
     var names = [];
-    var n = node._parent;
+    var n = node.parent || node._parent;
     var depth = 0;
     while (n && depth < (limit || 8)) {
       names.push(nodeName(n) || '(unnamed)');
-      n = n._parent;
+      n = n.parent || n._parent;
       depth++;
     }
     return names;
@@ -92,12 +92,12 @@
   // Walk ancestors to find a player seat index via holdem_player_pkw parent.
   // Returns -1 if this sprite is not inside a player seat container.
   function resolveSeatIndex(node) {
-    var n = node._parent;
+    var n = node.parent || node.parent || node._parent;
     var depth = 0;
     while (n && depth < 15) {
       if (nodeName(n) === 'holdem_player_pkw') {
         // Seat index is the position of this container among its siblings
-        var parent = n._parent;
+        var parent = n.parent || n._parent;
         if (parent) {
           var siblings = parent._children || parent.children || [];
           for (var i = 0; i < siblings.length; i++) {
@@ -106,7 +106,7 @@
         }
         return 0;
       }
-      n = n._parent;
+      n = n.parent || n._parent;
       depth++;
     }
     return -1; // community card or unknown
@@ -118,9 +118,11 @@
   var handIndex = 0;   // incremented when we see a new deal wave
   var paused = false;
 
-  function appendEntry(event, frameId, frameName, node) {
+  function appendEntry(event, frameId, frameName, spriteComp) {
     if (paused) return;
     var card = frameIdToCard(frameId);
+    // spriteComp may be a cc.Sprite component — extract the actual scene Node for traversal
+    var node = (spriteComp && spriteComp.node) ? spriteComp.node : spriteComp;
     var path = nodePath(node);
     var seat = resolveSeatIndex(node);
     var now = new Date();
@@ -134,7 +136,7 @@
       frameId: frameId,
       frameName: frameName,
       nodePath: path,
-      nodeId: node._id,     // Cocos2d unique node ID — use to identify individual sprites
+      nodeId: spriteComp._id,  // component ID — unique per Sprite, used for _faceSeenThisHand
       parentNames: parentNames(node, 6),  // ancestor names for scene hierarchy debugging
       seatIndex: seat,
       handIndex: handIndex
@@ -186,8 +188,7 @@
         try {
           if (!frame) return;
           var sfName = frame._name || frame.name || '';
-          var path = nodePath(this);
-          var nodeId = this._id != null ? this._id : path;  // unique key for _faceSeenThisHand
+          var nodeId = this._id;  // component ID — unique key for _faceSeenThisHand
 
           // Back-face check must come BEFORE parseInt — 'cards_back_0' parses as NaN.
           // Only log cover events for nodes we already saw a face card on this hand —
