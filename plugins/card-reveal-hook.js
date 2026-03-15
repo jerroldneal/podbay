@@ -583,7 +583,7 @@
         },
         {
           name: 'get_opponent_hole_cards',
-          description: 'Returns opponent hole cards inferred from flipCardAction calls. Only includes holderType:hide entries (cards dealt to opponents and covered — never visibly shown). Groups by handIndex and seatIndex. This is pure observation — no cards are flipped or modified.',
+          description: 'Returns opponent hole cards captured at deal time. Opponent cards are dealt via setCardSprite() — instantly shown then immediately covered (within 50ms). Reads the sprite event log, filters to face events with quickCover:true, groups by handIndex and seatIndex. Two cards per opponent seat. Pure observation — no active flipping.',
           inputSchema: {
             type: 'object',
             properties: {
@@ -595,24 +595,37 @@
           },
           handler: function (args) {
             var targetHand = (args && args.handIndex !== undefined) ? args.handIndex : handIndex;
-            // Collect seat hole card flips — seatIndex >= 0 means a player seat (not community).
-            // The engine always passes _showHolder to flipCardAction even for opponent cards that
-            // get immediately covered — holderType:'hide' never fires. Filter by seat instead.
-            // Each card has 2 sprite renderers (normal @ 0.7 + celebrity @ 0.44) so deduplicate
-            // by cardId within each seat, keeping the first occurrence.
+            // Opponent hole cards use setCardSprite() directly — no flipCardAction call.
+            // They appear in the sprite log as face events where a cover follows within 50ms
+            // (quickCover:true). Read from log[], not flipLog[].
+            var coverTsByNode = {};
+            for (var ci = 0; ci < log.length; ci++) {
+              var ce = log[ci];
+              if (ce.event === 'cover' && ce.nodeId) {
+                if (coverTsByNode[ce.nodeId] === undefined || ce.ts < coverTsByNode[ce.nodeId]) {
+                  coverTsByNode[ce.nodeId] = ce.ts;
+                }
+              }
+            }
             var byHand = {};
-            var seen = {}; // "handIndex:seatIndex:cardId" → true
-            for (var i = 0; i < flipLog.length; i++) {
-              var e = flipLog[i];
-              if (e.seatIndex < 0) continue;  // community cards — skip
+            var seen = {}; // "handIndex:seatIndex:cardId" → true (dedupe)
+            for (var i = 0; i < log.length; i++) {
+              var e = log[i];
+              if (e.event !== 'face') continue;
+              if (!e.card) continue;
+              if (e.seatIndex < 0) continue;        // skip community cards
+              if (e.commPos) continue;               // skip community cards
+              var coverTs = coverTsByNode[e.nodeId];
+              var quickCover = (coverTs !== undefined) && ((coverTs - e.ts) < COVER_END_OF_HAND_THRESHOLD_MS);
+              if (!quickCover) continue;             // skip self cards (not covered quickly)
               var hi = e.handIndex;
               var si = e.seatIndex;
-              var key = hi + ':' + si + ':' + e.cardId;
-              if (seen[key]) continue;  // duplicate renderer — skip
+              var key = hi + ':' + si + ':' + e.card;
+              if (seen[key]) continue;
               seen[key] = true;
               if (!byHand[hi]) byHand[hi] = {};
               if (!byHand[hi][si]) byHand[hi][si] = [];
-              byHand[hi][si].push({ card: e.card, cardId: e.cardId, clock: e.clock, ts: e.ts });
+              byHand[hi][si].push({ card: e.card, cardId: e.frameId, clock: e.clock, ts: e.ts });
             }
             return {
               handIndex: targetHand,
