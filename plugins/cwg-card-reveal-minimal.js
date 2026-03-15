@@ -135,22 +135,31 @@
       get: desc.get,
       set: function (v) {
         origSet.call(this, v); // always call original — never swallow engine behaviour
-        if (!v) return;
 
-        // Filter only on isNaN — matches Step 1 proof-of-concept.
-        // Non-numeric names (e.g. 'cards_back_0') naturally produce NaN and are skipped.
-        // All other numeric frame IDs are logged, whether or not they map to a known card.
-        var frameId = parseInt(v._name || v.name || '', 10);
-        if (isNaN(frameId)) return;
+        // Raw diagnostic log — fires for EVERY spriteFrame assignment before any filter.
+        // Lets us see null/falsy values and non-numeric names that get dropped below.
+        console.log('[CWG-Raw]', 'v=', v ? (v._name || v.name || '(no name)') : v, 'node=', this.node ? this.node.name : this.node);
 
-        var card = decode(frameId); // may be null for numeric IDs outside the card atlas
-        var seat = findSeat(this.node) || 'undefined';
-        if (card) addToSeat(seat, card); // only track known cards in __allCards
-        var entry = logEvent(card, seat, frameId);
-        console.log('[CWG-Minimal]', entry.seat, '→', card || frameId);
-        // Push to broker activity feed so the dashboard lights up in real-time
-        if (_brokerClient) {
-          _brokerClient.notify({ type: 'card', seat: entry.seat, card: card, frameId: frameId, clock: entry.clock });
+        try {
+          if (!v) return;
+
+          // Filter only on isNaN — matches Step 1 proof-of-concept.
+          // Non-numeric names (e.g. 'cards_back_0') naturally produce NaN and are skipped.
+          // All other numeric frame IDs are logged, whether or not they map to a known card.
+          var frameId = parseInt(v._name || v.name || '', 10);
+          if (isNaN(frameId)) return;
+
+          var card = decode(frameId); // may be null for numeric IDs outside the card atlas
+          var seat = this.node ? (findSeat(this.node) || 'undefined') : 'undefined';
+          if (card) addToSeat(seat, card); // only track known cards in __allCards
+          var entry = logEvent(card, seat, frameId);
+          console.log('[CWG-Minimal]', entry.seat, '→', card || frameId);
+          // Push to broker activity feed so the dashboard lights up in real-time
+          if (_brokerClient) {
+            _brokerClient.notify({ type: 'card', seat: entry.seat, card: card, frameId: frameId, clock: entry.clock });
+          }
+        } catch (e) {
+          console.warn('[CWG-Minimal] setter error:', e && e.message, 'v=', v && (v._name || v.name));
         }
       }
     });
