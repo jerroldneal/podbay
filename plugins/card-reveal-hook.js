@@ -123,9 +123,14 @@
     var publicCards = holdemCard.parent || holdemCard._parent;
     if (!publicCards) return null;
     if (nodeName(publicCards) !== 'public_cards') return null;
-    var siblings = publicCards._children || publicCards.children || [];
-    for (var i = 0; i < siblings.length; i++) {
-      if (siblings[i] === holdemCard) return COMMUNITY_POS[i] || ('C' + i);
+    var allChildren = publicCards._children || publicCards.children || [];
+    // Filter to only holdem_card-named nodes — other UI elements share the same parent
+    var cardChildren = [];
+    for (var i = 0; i < allChildren.length; i++) {
+      if (nodeName(allChildren[i]) === 'holdem_card') cardChildren.push(allChildren[i]);
+    }
+    for (var j = 0; j < cardChildren.length; j++) {
+      if (cardChildren[j] === holdemCard) return COMMUNITY_POS[j] || ('C' + j);
     }
     return null;
   }
@@ -170,6 +175,9 @@
   // We track which sprite nodes have had a face assigned this hand so we can
   // distinguish a first-time face assignment from a showdown reveal.
   var _faceSeenThisHand = {};   // nodeId → true  (uses node._id, unique per Cocos2d node)
+  var _lastFaceTs = {};          // nodeId → performance.now() at time of last face assignment
+  // End-of-hand covers happen >50ms after the face; deal-time covers happen within ~1ms.
+  var COVER_END_OF_HAND_THRESHOLD_MS = 50;
   var _hookInstalled = false;
 
   function installHook() {
@@ -216,6 +224,13 @@
           if (isBackFace(sfName)) {
             if (_faceSeenThisHand[nodeId]) {
               appendEntry('cover', 0, sfName, this);
+              // If this cover happens well after the face flash, it's an end-of-hand clear.
+              // Reset tracking so the next assignment on this sprite slot is a fresh 'face'.
+              var msSinceFace = performance.now() - (_lastFaceTs[nodeId] || 0);
+              if (msSinceFace > COVER_END_OF_HAND_THRESHOLD_MS) {
+                delete _faceSeenThisHand[nodeId];
+                delete _lastFaceTs[nodeId];
+              }
             }
             return;
           }
@@ -228,10 +243,12 @@
 
           if (_faceSeenThisHand[nodeId]) {
             // Second face assignment on this node this hand = showdown reveal
+            _lastFaceTs[nodeId] = performance.now();
             appendEntry('reveal', frameId, sfName, this);
           } else {
             // First face assignment = the ~1ms true card flash
             _faceSeenThisHand[nodeId] = true;
+            _lastFaceTs[nodeId] = performance.now();
             appendEntry('face', frameId, sfName, this);
           }
         } catch (e) {
@@ -259,12 +276,14 @@
     clear: function () {
       log.length = 0;
       _faceSeenThisHand = {};
+      _lastFaceTs = {};
       handIndex++;
     },
     pause: function () { paused = true; },
     resume: function () { paused = false; },
     newHand: function () {
       _faceSeenThisHand = {};
+      _lastFaceTs = {};
       handIndex++;
     }
   };
