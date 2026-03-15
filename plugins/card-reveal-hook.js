@@ -112,6 +112,24 @@
     return -1; // community card or unknown
   }
 
+  // Walk up to find community card position (F1/F2/F3/T/R) by sibling index
+  // under public_cards. Returns null for hole cards and unknown nodes.
+  var COMMUNITY_POS = ['F1', 'F2', 'F3', 'T', 'R'];
+
+  function communityCardPos(node) {
+    // node = card sprite → parent = holdem_card → parent = public_cards
+    var holdemCard = node.parent || node._parent;
+    if (!holdemCard) return null;
+    var publicCards = holdemCard.parent || holdemCard._parent;
+    if (!publicCards) return null;
+    if (nodeName(publicCards) !== 'public_cards') return null;
+    var siblings = publicCards._children || publicCards.children || [];
+    for (var i = 0; i < siblings.length; i++) {
+      if (siblings[i] === holdemCard) return COMMUNITY_POS[i] || ('C' + i);
+    }
+    return null;
+  }
+
   // ── Log ─────────────────────────────────────────────────────────────────
   var MAX_LOG = 500;
   var log = [];
@@ -125,6 +143,7 @@
     var node = (spriteComp && spriteComp.node) ? spriteComp.node : spriteComp;
     var path = nodePath(node);
     var seat = resolveSeatIndex(node);
+    var commPos = communityCardPos(node);  // 'F1','F2','F3','T','R' or null
     var now = new Date();
     var clock = now.toTimeString().slice(0, 8); // hh:mm:ss
     var entry = {
@@ -139,6 +158,7 @@
       nodeId: spriteComp._id,  // component ID — unique per Sprite, used for _faceSeenThisHand
       parentNames: parentNames(node, 6),  // ancestor names for scene hierarchy debugging
       seatIndex: seat,
+      commPos: commPos,      // community card position: 'F1','F2','F3','T','R' or null
       handIndex: handIndex
     };
     log.push(entry);
