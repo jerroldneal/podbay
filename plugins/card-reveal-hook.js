@@ -293,6 +293,7 @@
       };
     },
     clear: function () {
+      if (_newHandTimer) { clearTimeout(_newHandTimer); _newHandTimer = null; }
       log.length = 0;
       _faceSeenThisHand = {};
       _lastFaceTs = {};
@@ -301,6 +302,7 @@
     pause: function () { paused = true; },
     resume: function () { paused = false; },
     newHand: function () {
+      if (_newHandTimer) { clearTimeout(_newHandTimer); _newHandTimer = null; }
       _faceSeenThisHand = {};
       _lastFaceTs = {};
       handIndex++;
