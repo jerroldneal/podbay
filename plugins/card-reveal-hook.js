@@ -269,12 +269,24 @@
             if (args && args.last) {
               entries = entries.slice(-args.last);
             }
+            // Inject gap markers for gaps > 1 second
+            var withGaps = [];
+            for (var gi = 0; gi < entries.length; gi++) {
+              if (gi > 0 && entries[gi].ts - entries[gi - 1].ts > 1000) {
+                withGaps.push({
+                  event: '---',
+                  gapMs: Math.round(entries[gi].ts - entries[gi - 1].ts),
+                  clock: entries[gi].clock
+                });
+              }
+              withGaps.push(entries[gi]);
+            }
             return {
               logSize: log.length,
-              returned: entries.length,
+              returned: withGaps.length,
               handIndex: handIndex,
               hookInstalled: _hookInstalled,
-              entries: entries
+              entries: withGaps
             };
           }
         },
