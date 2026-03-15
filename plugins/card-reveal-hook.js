@@ -185,6 +185,8 @@
   var _hookInstalled = false;
   var _flipHookInstalled = false;  // true once flipCardAction prototype is patched
   var _pendingFlip = {};           // spriteComp._id → { cardId, ts } set by flipCardAction hook
+  var MAX_FLIP_LOG = 500;
+  var flipLog = [];                // one entry per flipCardAction call (all flips including board)
 
   function scheduleNewHand() {
     if (_newHandTimer) clearTimeout(_newHandTimer);
@@ -219,6 +221,31 @@
         if (cardId && !paused && this.sprite && this.sprite._id !== undefined) {
           _pendingFlip[this.sprite._id] = { cardId: cardId, ts: performance.now() };
         }
+        // ── flip call log entry ──────────────────────────────────────────
+        var now = new Date();
+        var hms = now.toTimeString().slice(0, 8); // hh:mm:ss
+        var card = frameIdToCard(cardId);
+        var holderType = 'unknown';
+        try {
+          // _showHolder / _hideHolder are arrays of cc.Node; compare by reference
+          if (holder === this._showHolder) holderType = 'show';
+          else if (holder === this._hideHolder) holderType = 'hide';
+        } catch (e) { /* ignore */ }
+        var spriteNode = (this.sprite && this.sprite.node) ? this.sprite.node : null;
+        var fentry = {
+          ts: performance.now(),
+          wallMs: Date.now(),
+          clock: hms,
+          cardId: cardId,
+          card: card,
+          holderType: holderType,
+          scale: scale,
+          spriteId: this.sprite ? this.sprite._id : null,
+          nodePath: spriteNode ? nodePath(spriteNode) : '',
+          handIndex: handIndex
+        };
+        flipLog.push(fentry);
+        if (flipLog.length > MAX_FLIP_LOG) flipLog.shift();
       } catch (e) { /* never propagate */ }
       return origFlip.apply(this, arguments);
     };
@@ -364,6 +391,7 @@
     clear: function () {
       if (_newHandTimer) { clearTimeout(_newHandTimer); _newHandTimer = null; }
       log.length = 0;
+      flipLog.length = 0;
       _faceSeenThisHand = {};
       _lastFaceTs = {};
       _pendingFlip = {};
@@ -377,6 +405,9 @@
       _lastFaceTs = {};
       _pendingFlip = {};
       handIndex++;
+    },
+    getFlipLog: function (last) {
+      return last ? flipLog.slice(-last) : flipLog.slice();
     }
   };
 
@@ -506,6 +537,47 @@
             var prev = log.length;
             window.PodBayCardRevealHook.clear();
             return { cleared: prev, handIndex: handIndex };
+          }
+        },
+        {
+          name: 'get_flip_log',
+          description: 'Returns a log of every flipCardAction call — every card flip attempted by the engine, including opponent hole cards (holderType: hide) and self cards (holderType: show). Each entry has clock (hh:mm:ss), card, cardId, holderType, scale, nodePath, handIndex.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              last: {
+                type: 'number',
+                description: 'Return only the last N entries (default: all)'
+              },
+              handIndex: {
+                type: 'number',
+                description: 'Filter to a specific hand index. Omit for all.'
+              },
+              holderType: {
+                type: 'string',
+                enum: ['show', 'hide', 'unknown'],
+                description: 'Filter by holder type. hide = opponent cards (covered after flip), show = your own cards.'
+              }
+            }
+          },
+          handler: function (args) {
+            var entries = flipLog.slice();
+            if (args && args.handIndex !== undefined) {
+              entries = entries.filter(function (e) { return e.handIndex === args.handIndex; });
+            }
+            if (args && args.holderType) {
+              entries = entries.filter(function (e) { return e.holderType === args.holderType; });
+            }
+            if (args && args.last) {
+              entries = entries.slice(-args.last);
+            }
+            return {
+              flipLogSize: flipLog.length,
+              returned: entries.length,
+              handIndex: handIndex,
+              flipHookInstalled: _flipHookInstalled,
+              entries: entries
+            };
           }
         },
         {
