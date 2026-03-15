@@ -188,6 +188,10 @@
   var _pendingFlip = {};           // spriteComp._id → { cardId, ts } set by flipCardAction hook
   var MAX_FLIP_LOG = 500;
   var flipLog = [];                // one entry per flipCardAction call (all flips including board)
+  var MAX_VERBOSE_LOG = 2000;
+  var verboseLog = [];             // all card component function calls when verbose is enabled
+  var verboseEnabled = false;
+  var _verboseHookInstalled = false;
 
   function scheduleNewHand() {
     if (_newHandTimer) clearTimeout(_newHandTimer);
@@ -212,6 +216,63 @@
   //
   // Cover events (setCardSprite(0) / back-face) are NOT gated — they still
   // flow through the setter unchanged so quickCover timing is preserved.
+
+  // ── Verbose function hook ──────────────────────────────────────────────
+  // Serializes any JS value to a readable string for the verbose log.
+  function summarizeArg(a) {
+    if (a === null) return 'null';
+    if (a === undefined) return 'undefined';
+    var t = typeof a;
+    if (t === 'number' || t === 'boolean') return String(a);
+    if (t === 'string') return '"' + a + '"';
+    if (t === 'function') return 'fn()';
+    if (Array.isArray(a)) return '[len=' + a.length + ']';
+    // cc.Node has _components; cc.Component has _id
+    if (a._components !== undefined) return 'Node:' + (a.name || a._name || '?');
+    if (a._id !== undefined) return 'Comp:' + a._id;
+    return '{obj}';
+  }
+
+  // Hooks every method on the Holdem_Card_ts prototype for verbose call logging.
+  function installVerboseHook(cardComp) {
+    if (_verboseHookInstalled) return;
+    var proto = Object.getPrototypeOf(cardComp);
+    if (!proto) return;
+    var names = Object.getOwnPropertyNames(proto);
+    var count = 0;
+    for (var ni = 0; ni < names.length; ni++) {
+      (function (name) {
+        if (name === 'constructor') return;
+        if (proto['__vbHooked_' + name]) return;
+        var orig = proto[name];
+        if (typeof orig !== 'function') return;
+        proto[name] = function () {
+          if (verboseEnabled) {
+            try {
+              var now = new Date();
+              var args = [];
+              for (var ai = 0; ai < arguments.length; ai++) {
+                args.push(summarizeArg(arguments[ai]));
+              }
+              verboseLog.push({
+                clock: now.toTimeString().slice(0, 8),
+                ts: performance.now(),
+                fn: name,
+                args: args,
+                handIndex: handIndex
+              });
+              if (verboseLog.length > MAX_VERBOSE_LOG) verboseLog.shift();
+            } catch (e) { /* never propagate */ }
+          }
+          return orig.apply(this, arguments);
+        };
+        proto['__vbHooked_' + name] = true;
+        count++;
+      })(names[ni]);
+    }
+    _verboseHookInstalled = true;
+    console.log('[PodBay CardRevealHook] verbose hook installed — ' + count + ' functions wrapped');
+  }
 
   function installFlipHook(cardComp) {
     var proto = Object.getPrototypeOf(cardComp);
@@ -266,6 +327,7 @@
       for (var i = 0; i < comps.length; i++) {
         if (typeof comps[i].flipCardAction === 'function') {
           installFlipHook(comps[i]);
+          installVerboseHook(comps[i]);
           return;
         }
       }
@@ -391,8 +453,12 @@
       return {
         installed: _hookInstalled,
         flipHookInstalled: _flipHookInstalled,
+        verboseHookInstalled: _verboseHookInstalled,
+        verboseEnabled: verboseEnabled,
         paused: paused,
         logSize: log.length,
+        flipLogSize: flipLog.length,
+        verboseLogSize: verboseLog.length,
         handIndex: handIndex
       };
     },
@@ -418,6 +484,13 @@
     },
     getFlipLog: function (last) {
       return last ? flipLog.slice(-last) : flipLog.slice();
+    },
+    getVerboseLog: function (last) {
+      return last ? verboseLog.slice(-last) : verboseLog.slice();
+    },
+    setVerbose: function (enabled, clearLog) {
+      verboseEnabled = !!enabled;
+      if (clearLog) verboseLog.length = 0;
     }
   };
 
@@ -641,6 +714,61 @@
               flipHookInstalled: _flipHookInstalled,
               seats: byHand[targetHand] || {},
               allHands: Object.keys(byHand).map(Number)
+            };
+          }
+        },
+        {
+          name: 'set_verbose_log',
+          description: 'Enable or disable verbose function call logging on the card component. When enabled, every function call on the Holdem_Card_ts prototype is captured with timestamp, function name, and arguments. Use to observe the exact call sequence during the initial deal.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              enabled: { type: 'boolean', description: 'true to start capturing, false to stop' },
+              clear: { type: 'boolean', description: 'If true, clear the verbose log at the same time (default: false)' }
+            },
+            required: ['enabled']
+          },
+          handler: function (args) {
+            window.PodBayCardRevealHook.setVerbose(args.enabled, args.clear);
+            return {
+              verboseEnabled: verboseEnabled,
+              verboseHookInstalled: _verboseHookInstalled,
+              verboseLogSize: verboseLog.length
+            };
+          }
+        },
+        {
+          name: 'get_verbose_log',
+          description: 'Returns the verbose function call log. Each entry has clock (hh:mm:ss), ts, fn (function name), args (serialized), handIndex. Use set_verbose_log first to enable capture.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              last: { type: 'number', description: 'Return only the last N entries (default: all)' },
+              fn: { type: 'string', description: 'Filter to a specific function name (e.g. "setCardSprite", "moveToHide")' },
+              handIndex: { type: 'number', description: 'Filter to a specific hand index. Omit for all.' },
+              clear_after: { type: 'boolean', description: 'If true, clear the verbose log after returning results' }
+            }
+          },
+          handler: function (args) {
+            var entries = verboseLog.slice();
+            if (args && args.handIndex !== undefined) {
+              entries = entries.filter(function (e) { return e.handIndex === args.handIndex; });
+            }
+            if (args && args.fn) {
+              entries = entries.filter(function (e) { return e.fn === args.fn; });
+            }
+            if (args && args.last) {
+              entries = entries.slice(-args.last);
+            }
+            if (args && args.clear_after) {
+              verboseLog.length = 0;
+            }
+            return {
+              verboseEnabled: verboseEnabled,
+              verboseHookInstalled: _verboseHookInstalled,
+              verboseLogSize: verboseLog.length,
+              returned: entries.length,
+              entries: entries
             };
           }
         },
