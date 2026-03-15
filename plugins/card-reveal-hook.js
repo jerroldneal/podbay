@@ -236,42 +236,46 @@
   // Hooks every method on the Holdem_Card_ts prototype for verbose call logging.
   function installVerboseHook(cardComp) {
     if (_verboseHookInstalled) return;
-    var proto = Object.getPrototypeOf(cardComp);
-    if (!proto) return;
-    var names = Object.getOwnPropertyNames(proto);
     var count = 0;
-    for (var ni = 0; ni < names.length; ni++) {
-      (function (name) {
-        if (name === 'constructor') return;
-        if (proto['__vbHooked_' + name]) return;
-        var orig = proto[name];
-        if (typeof orig !== 'function') return;
-        proto[name] = function () {
-          if (verboseEnabled) {
-            try {
-              var now = new Date();
-              var args = [];
-              for (var ai = 0; ai < arguments.length; ai++) {
-                args.push(summarizeArg(arguments[ai]));
-              }
-              verboseLog.push({
-                clock: now.toTimeString().slice(0, 8),
-                ts: performance.now(),
-                fn: name,
-                args: args,
-                handIndex: handIndex
-              });
-              if (verboseLog.length > MAX_VERBOSE_LOG) verboseLog.shift();
-            } catch (e) { /* never propagate */ }
-          }
-          return orig.apply(this, arguments);
-        };
-        proto['__vbHooked_' + name] = true;
-        count++;
-      })(names[ni]);
+    // Walk the full prototype chain so inherited methods (e.g. setCardSprite on a
+    // base class) are captured, not just methods defined directly on Holdem_Card_ts.
+    var p = Object.getPrototypeOf(cardComp);
+    while (p && p !== Object.prototype) {
+      var names = Object.getOwnPropertyNames(p);
+      for (var ni = 0; ni < names.length; ni++) {
+        (function (name, proto) {
+          if (name === 'constructor') return;
+          if (proto['__vbHooked_' + name]) return;
+          var orig = proto[name];
+          if (typeof orig !== 'function') return;
+          proto[name] = function () {
+            if (verboseEnabled) {
+              try {
+                var now = new Date();
+                var args = [];
+                for (var ai = 0; ai < arguments.length; ai++) {
+                  args.push(summarizeArg(arguments[ai]));
+                }
+                verboseLog.push({
+                  clock: now.toTimeString().slice(0, 8),
+                  ts: performance.now(),
+                  fn: name,
+                  args: args,
+                  handIndex: handIndex
+                });
+                if (verboseLog.length > MAX_VERBOSE_LOG) verboseLog.shift();
+              } catch (e) { /* never propagate */ }
+            }
+            return orig.apply(this, arguments);
+          };
+          proto['__vbHooked_' + name] = true;
+          count++;
+        })(names[ni], p);
+      }
+      p = Object.getPrototypeOf(p);
     }
     _verboseHookInstalled = true;
-    console.log('[PodBay CardRevealHook] verbose hook installed — ' + count + ' functions wrapped');
+    console.log('[PodBay CardRevealHook] verbose hook installed — ' + count + ' functions wrapped (full chain)');
   }
 
   function installFlipHook(cardComp) {
