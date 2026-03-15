@@ -8,6 +8,11 @@
       "description": "WebSocket interceptor — patches WS constructor + prototype.send, decodes CWG protobuf frames, provides event bus (CWGProtoTap) and 5 MCP tools"
     },
     {
+      "type": "cwg-game-status",
+      "file": "plugins/cwg/cwg-game-status.js",
+      "description": "Accumulated game status snapshot from protobuf wire events — phase, seats, pot, community cards, hero hole cards, action options (signal-fetch, 3 MCP tools)"
+    },
+    {
       "type": "cwg-core",
       "file": "plugins/cwg/cwg-core.js",
       "description": "Cocos2d scene utilities shared by all cwg plugins (findNode, getText, getGameView, enableParentChain)"
