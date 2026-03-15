@@ -171,18 +171,20 @@
         try {
           if (!frame) return;
           var sfName = frame._name || frame.name || '';
+          var path = nodePath(this);
 
-          // Back-face check must come BEFORE parseInt — 'cards_back_0' parses as NaN
+          // Back-face check must come BEFORE parseInt — 'cards_back_0' parses as NaN.
+          // Only log cover events for nodes we already saw a face card on this hand —
+          // this prevents spurious cover events from unrelated sprites (wrong seat/hand).
           if (isBackFace(sfName)) {
-            // Cover event — back-face texture applied after face assignment
-            appendEntry('cover', 0, sfName, this);
+            if (_faceSeenThisHand[path]) {
+              appendEntry('cover', 0, sfName, this);
+            }
             return;
           }
 
           var frameId = parseInt(sfName, 10);
           if (isNaN(frameId)) return;  // non-numeric frame name — not a card
-
-          var path = nodePath(this);
 
           var card = frameIdToCard(frameId);
           if (!card) return;  // valid number but not in card atlas
