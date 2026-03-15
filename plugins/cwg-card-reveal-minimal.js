@@ -84,7 +84,7 @@
   window.__cardLog = [];   // rolling events (last LOG_LIMIT entries)
 
   function addToSeat(seat, card) {
-    var key = seat || 'community';
+    var key = seat || 'undefined';
     if (!window.__allCards[key]) window.__allCards[key] = [];
     var arr = window.__allCards[key];
 
@@ -105,7 +105,7 @@
       t: Date.now(),
       clock: new Date().toTimeString().slice(0, 8),
       card: card,
-      seat: seat || 'community'
+      seat: seat || 'undefined'
     };
     window.__cardLog.push(entry);
     if (window.__cardLog.length > LOG_LIMIT) window.__cardLog.shift();
@@ -142,7 +142,7 @@
         var card = decode(parseInt(v._name || v.name || '', 10));
         if (!card) return;
 
-        var seat = findSeat(this.node);
+        var seat = findSeat(this.node) || 'undefined';
         addToSeat(seat, card);
         var entry = logEvent(card, seat);
         console.log('[CWG-Minimal]', entry.seat, '→', card);
