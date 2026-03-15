@@ -1,0 +1,106 @@
+{
+  "name": "cwg-plugin-library",
+  "description": "CWG SRP plugin library — observation (table state, cards, bet state) + precise action tools (fold/call/check/bet/raise/allin + pre-action variants)",
+  "plugins": [
+    {
+      "type": "cwg-core",
+      "file": "plugins/cwg/cwg-core.js",
+      "description": "Cocos2d scene utilities shared by all cwg plugins (findNode, getText, getGameView, enableParentChain)"
+    },
+    {
+      "type": "cwg-card-atlas",
+      "file": "plugins/cwg/cwg-card-atlas.js",
+      "description": "Frame ID → card string decoder (52-card atlas, isBackFace)"
+    },
+    {
+      "type": "cwg-hand-lifecycle",
+      "file": "plugins/cwg/cwg-hand-lifecycle.js",
+      "description": "Hand index tracking, new-hand debounce, per-sprite face/flip state"
+    },
+    {
+      "type": "cwg-action-core",
+      "file": "plugins/cwg/cwg-action-core.js",
+      "description": "Button finder and clicker shared by all action plugins (click, clickButton, getActionPanelComp)"
+    },
+    {
+      "type": "cwg-bet-state",
+      "file": "plugins/cwg/cwg-bet-state.js",
+      "description": "MCP tool: get_bet_state — reads call amount, raise amount, pot, and bet slider state"
+    },
+    {
+      "type": "cwg-table-state",
+      "file": "plugins/cwg/cwg-table-state.js",
+      "description": "MCP tool: get_table_state — structured table snapshot (players, community cards, pot, street, dealer/SB/BB)"
+    },
+    {
+      "type": "cwg-my-cards",
+      "file": "plugins/cwg/cwg-my-cards.js",
+      "description": "MCP tool: get_my_cards — reads hero hole cards from the scene"
+    },
+    {
+      "type": "cwg-flip-hook",
+      "file": "plugins/cwg/cwg-flip-hook.js",
+      "description": "MCP tool: get_flip_log — patches flipCardAction prototype, logs all card flips, populates pending-flip state for opponent-cards"
+    },
+    {
+      "type": "cwg-opponent-cards",
+      "file": "plugins/cwg/cwg-opponent-cards.js",
+      "description": "MCP tools: get_card_log, get_opponent_hole_cards, clear_card_log — intercepts cc.Sprite.prototype.spriteFrame to capture opponent hole cards"
+    },
+    {
+      "type": "cwg-verbose-hook",
+      "file": "plugins/cwg/cwg-verbose-hook.js",
+      "description": "MCP tools: set_verbose_log, get_verbose_log — verbose logging of all Holdem_Card_ts method calls"
+    },
+    {
+      "type": "cwg-fold",
+      "file": "plugins/cwg/cwg-fold.js",
+      "description": "MCP tool: fold — fold the current hand"
+    },
+    {
+      "type": "cwg-call",
+      "file": "plugins/cwg/cwg-call.js",
+      "description": "MCP tool: call — call the current bet"
+    },
+    {
+      "type": "cwg-check",
+      "file": "plugins/cwg/cwg-check.js",
+      "description": "MCP tool: check — check (pass) when no bet is pending"
+    },
+    {
+      "type": "cwg-bet",
+      "file": "plugins/cwg/cwg-bet.js",
+      "description": "MCP tool: bet — set bet amount and confirm (supports number, pot, half, min, max, Nbb)"
+    },
+    {
+      "type": "cwg-raise",
+      "file": "plugins/cwg/cwg-raise.js",
+      "description": "MCP tool: raise — set raise amount and confirm (supports number, pot, half, min, max, Nbb)"
+    },
+    {
+      "type": "cwg-allin",
+      "file": "plugins/cwg/cwg-allin.js",
+      "description": "MCP tool: allin — go all-in with full chip stack"
+    },
+    {
+      "type": "cwg-pre-fold",
+      "file": "plugins/cwg/cwg-pre-fold.js",
+      "description": "MCP tool: pre_fold — arm or disarm the pre-fold toggle"
+    },
+    {
+      "type": "cwg-pre-call",
+      "file": "plugins/cwg/cwg-pre-call.js",
+      "description": "MCP tool: pre_call — arm or disarm the pre-call toggle"
+    },
+    {
+      "type": "cwg-pre-check",
+      "file": "plugins/cwg/cwg-pre-check.js",
+      "description": "MCP tool: pre_check — arm or disarm the pre-check toggle (tries prebetCheck then prebetCheckOrFold)"
+    },
+    {
+      "type": "cwg-pre-raise",
+      "file": "plugins/cwg/cwg-pre-raise.js",
+      "description": "MCP tool: pre_raise — arm or disarm the pre-all-in toggle"
+    }
+  ]
+}
