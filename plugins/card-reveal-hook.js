@@ -176,6 +176,7 @@
   // distinguish a first-time face assignment from a showdown reveal.
   var _faceSeenThisHand = {};   // nodeId → true  (uses node._id, unique per Cocos2d node)
   var _lastFaceTs = {};          // nodeId → performance.now() at time of last face assignment
+  var _lastFaceCard = {};        // nodeId → frameId of the last face card shown on this node
   // End-of-hand covers happen >50ms after the face; deal-time covers happen within ~1ms.
   var COVER_END_OF_HAND_THRESHOLD_MS = 50;
   // After end-of-hand covers are detected, wait this long before auto-advancing handIndex.
@@ -194,6 +195,7 @@
       _newHandTimer = null;
       _faceSeenThisHand = {};
       _lastFaceTs = {};
+      _lastFaceCard = {};
       _pendingFlip = {};  // clear any stale pending entries between hands
       handIndex++;
       console.log('[PodBay CardRevealHook] auto new hand → handIndex=' + handIndex);
@@ -314,13 +316,16 @@
           // this prevents spurious cover events from unrelated sprites (wrong seat/hand).
           if (isBackFace(sfName)) {
             if (_faceSeenThisHand[nodeId]) {
-              appendEntry('cover', 0, sfName, this);
+              // Pass the previously-seen card ID so cover entries carry the hidden card.
+              var prevFrameId = _lastFaceCard[nodeId] || 0;
+              appendEntry('cover', prevFrameId, sfName, this);
               // If this cover happens well after the face flash, it's an end-of-hand clear.
               // Reset tracking so the next assignment on this sprite slot is a fresh 'face'.
               var msSinceFace = performance.now() - (_lastFaceTs[nodeId] || 0);
               if (msSinceFace > COVER_END_OF_HAND_THRESHOLD_MS) {
                 delete _faceSeenThisHand[nodeId];
                 delete _lastFaceTs[nodeId];
+                delete _lastFaceCard[nodeId];
                 // Schedule a new-hand transition — fires after 800ms of silence
                 scheduleNewHand();
               }
@@ -357,6 +362,7 @@
           if (_faceSeenThisHand[nodeId]) {
             // Second face assignment on this node this hand = showdown reveal
             _lastFaceTs[nodeId] = performance.now();
+            _lastFaceCard[nodeId] = resolvedFrameId;
             appendEntry('reveal', resolvedFrameId, resolvedSfName, this);
           } else {
             // First face assignment = deal-time card flash
@@ -364,6 +370,7 @@
             if (_newHandTimer) { clearTimeout(_newHandTimer); _newHandTimer = null; }
             _faceSeenThisHand[nodeId] = true;
             _lastFaceTs[nodeId] = performance.now();
+            _lastFaceCard[nodeId] = resolvedFrameId;
             appendEntry('face', resolvedFrameId, resolvedSfName, this);
           }
         } catch (e) {
@@ -395,6 +402,7 @@
       flipLog.length = 0;
       _faceSeenThisHand = {};
       _lastFaceTs = {};
+      _lastFaceCard = {};
       _pendingFlip = {};
       handIndex++;
     },
@@ -404,6 +412,7 @@
       if (_newHandTimer) { clearTimeout(_newHandTimer); _newHandTimer = null; }
       _faceSeenThisHand = {};
       _lastFaceTs = {};
+      _lastFaceCard = {};
       _pendingFlip = {};
       handIndex++;
     },
@@ -595,29 +604,29 @@
           },
           handler: function (args) {
             var targetHand = (args && args.handIndex !== undefined) ? args.handIndex : handIndex;
-            // Opponent hole cards use setCardSprite() directly — no flipCardAction call.
-            // They appear in the sprite log as face events where a cover follows within 50ms
-            // (quickCover:true). Read from log[], not flipLog[].
-            var coverTsByNode = {};
-            for (var ci = 0; ci < log.length; ci++) {
-              var ce = log[ci];
-              if (ce.event === 'cover' && ce.nodeId) {
-                if (coverTsByNode[ce.nodeId] === undefined || ce.ts < coverTsByNode[ce.nodeId]) {
-                  coverTsByNode[ce.nodeId] = ce.ts;
-                }
-              }
-            }
+            // Cover events now carry the card that was shown before the cover.
+            // A quickCover (cover within 50ms of face) at a player seat = opponent hole card.
+            // Deduplicate by hand:seat:card since each card may have 2 sprite renderers.
             var byHand = {};
-            var seen = {}; // "handIndex:seatIndex:cardId" → true (dedupe)
+            var seen = {};
             for (var i = 0; i < log.length; i++) {
               var e = log[i];
-              if (e.event !== 'face') continue;
-              if (!e.card) continue;
-              if (e.seatIndex < 0) continue;        // skip community cards
-              if (e.commPos) continue;               // skip community cards
-              var coverTs = coverTsByNode[e.nodeId];
-              var quickCover = (coverTs !== undefined) && ((coverTs - e.ts) < COVER_END_OF_HAND_THRESHOLD_MS);
-              if (!quickCover) continue;             // skip self cards (not covered quickly)
+              if (e.event !== 'cover') continue;
+              if (!e.card) continue;               // no preceding face card tracked — skip
+              if (e.seatIndex < 0) continue;       // community cards — skip
+              if (e.commPos) continue;
+              var msSinceFace = e.ts - (e.ts);     // not available here — use quickCover flag
+              // Check if this cover happened within 50ms of the face (deal-time quick cover)
+              // We detect this by checking whether a face entry for the same nodeId is < 50ms earlier
+              var isQuickCover = false;
+              for (var j = i - 1; j >= 0 && j >= i - 10; j--) {
+                var fe = log[j];
+                if (fe.nodeId === e.nodeId && fe.event === 'face' && (e.ts - fe.ts) < COVER_END_OF_HAND_THRESHOLD_MS) {
+                  isQuickCover = true;
+                  break;
+                }
+              }
+              if (!isQuickCover) continue;         // end-of-hand cover — skip
               var hi = e.handIndex;
               var si = e.seatIndex;
               var key = hi + ':' + si + ':' + e.card;
