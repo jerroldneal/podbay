@@ -183,6 +183,8 @@
   var NEW_HAND_DEBOUNCE_MS = 800;
   var _newHandTimer = null;
   var _hookInstalled = false;
+  var _flipHookInstalled = false;  // true once flipCardAction prototype is patched
+  var _pendingFlip = {};           // spriteComp._id → { cardId, ts } set by flipCardAction hook
 
   function scheduleNewHand() {
     if (_newHandTimer) clearTimeout(_newHandTimer);
@@ -190,9 +192,55 @@
       _newHandTimer = null;
       _faceSeenThisHand = {};
       _lastFaceTs = {};
+      _pendingFlip = {};  // clear any stale pending entries between hands
       handIndex++;
       console.log('[PodBay CardRevealHook] auto new hand → handIndex=' + handIndex);
     }, NEW_HAND_DEBOUNCE_MS);
+  }
+
+  // ── flipCardAction bootstrap ─────────────────────────────────────────────
+  // Patches the Holdem_Card_ts prototype so that every card flip announces the
+  // real card ID into _pendingFlip BEFORE the sprite animation runs.
+  //
+  // The spriteFrame setter then validates face events against this map:
+  //   • entry present + fresh → real deal/showdown flip → log it
+  //   • no entry (or stale > 500ms) → stale-node artifact → DROP IT
+  //
+  // Cover events (setCardSprite(0) / back-face) are NOT gated — they still
+  // flow through the setter unchanged so quickCover timing is preserved.
+
+  function installFlipHook(cardComp) {
+    var proto = Object.getPrototypeOf(cardComp);
+    if (!proto || proto.__podBayFlipHooked) return;
+    var origFlip = proto.flipCardAction;
+    if (typeof origFlip !== 'function') return;
+    proto.flipCardAction = function (holder, scale, cardId) {
+      try {
+        if (cardId && !paused && this.sprite && this.sprite._id !== undefined) {
+          _pendingFlip[this.sprite._id] = { cardId: cardId, ts: performance.now() };
+        }
+      } catch (e) { /* never propagate */ }
+      return origFlip.apply(this, arguments);
+    };
+    proto.__podBayFlipHooked = true;
+    _flipHookInstalled = true;
+    console.log('[PodBay CardRevealHook] flipCardAction prototype hooked — stale-node filter active');
+  }
+
+  function tryBootstrapFlipHook(spriteComp) {
+    if (_flipHookInstalled) return;
+    var node = spriteComp.node;
+    for (var depth = 0; depth < 4; depth++) {
+      if (!node) break;
+      var comps = node._components || [];
+      for (var i = 0; i < comps.length; i++) {
+        if (typeof comps[i].flipCardAction === 'function') {
+          installFlipHook(comps[i]);
+          return;
+        }
+      }
+      node = node.parent || node._parent;
+    }
   }
 
   function installHook() {
@@ -258,17 +306,37 @@
           var card = frameIdToCard(frameId);
           if (!card) return;  // valid number but not in card atlas
 
+          // Bootstrap the flipCardAction prototype hook on first real card seen.
+          tryBootstrapFlipHook(this);
+
+          // Gate: if flipCardAction is hooked, only accept face/reveal events that
+          // were announced by a flipCardAction call within the last 500ms.
+          // Events without a matching pending entry are stale-node artifacts — drop.
+          var resolvedFrameId = frameId;
+          if (_flipHookInstalled) {
+            var pending = _pendingFlip[nodeId];
+            if (!pending || (performance.now() - pending.ts) > 500) {
+              return;  // no preceding flipCardAction → stale node, discard
+            }
+            resolvedFrameId = pending.cardId;  // use the clean ID from flipCardAction
+            delete _pendingFlip[nodeId];
+            // Re-validate card with the authoritative ID
+            if (!frameIdToCard(resolvedFrameId)) return;
+          }
+
+          var resolvedSfName = String(resolvedFrameId);
+
           if (_faceSeenThisHand[nodeId]) {
             // Second face assignment on this node this hand = showdown reveal
             _lastFaceTs[nodeId] = performance.now();
-            appendEntry('reveal', frameId, sfName, this);
+            appendEntry('reveal', resolvedFrameId, resolvedSfName, this);
           } else {
-            // First face assignment = the ~1ms true card flash
+            // First face assignment = deal-time card flash
             // Cancel any pending new-hand timer — we are still in the current hand
             if (_newHandTimer) { clearTimeout(_newHandTimer); _newHandTimer = null; }
             _faceSeenThisHand[nodeId] = true;
             _lastFaceTs[nodeId] = performance.now();
-            appendEntry('face', frameId, sfName, this);
+            appendEntry('face', resolvedFrameId, resolvedSfName, this);
           }
         } catch (e) {
           // Never let hook errors propagate to engine
@@ -287,6 +355,7 @@
     status: function () {
       return {
         installed: _hookInstalled,
+        flipHookInstalled: _flipHookInstalled,
         paused: paused,
         logSize: log.length,
         handIndex: handIndex
@@ -297,6 +366,7 @@
       log.length = 0;
       _faceSeenThisHand = {};
       _lastFaceTs = {};
+      _pendingFlip = {};
       handIndex++;
     },
     pause: function () { paused = true; },
@@ -305,6 +375,7 @@
       if (_newHandTimer) { clearTimeout(_newHandTimer); _newHandTimer = null; }
       _faceSeenThisHand = {};
       _lastFaceTs = {};
+      _pendingFlip = {};
       handIndex++;
     }
   };
