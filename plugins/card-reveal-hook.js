@@ -132,7 +132,7 @@
   // ── Sprite hook ─────────────────────────────────────────────────────────
   // We track which sprite nodes have had a face assigned this hand so we can
   // distinguish a first-time face assignment from a showdown reveal.
-  var _faceSeenThisHand = {};   // nodePath → true
+  var _faceSeenThisHand = {};   // nodeId → true  (uses node._id, unique per Cocos2d node)
   var _hookInstalled = false;
 
   function installHook() {
@@ -172,12 +172,13 @@
           if (!frame) return;
           var sfName = frame._name || frame.name || '';
           var path = nodePath(this);
+          var nodeId = this._id != null ? this._id : path;  // unique key for _faceSeenThisHand
 
           // Back-face check must come BEFORE parseInt — 'cards_back_0' parses as NaN.
           // Only log cover events for nodes we already saw a face card on this hand —
           // this prevents spurious cover events from unrelated sprites (wrong seat/hand).
           if (isBackFace(sfName)) {
-            if (_faceSeenThisHand[path]) {
+            if (_faceSeenThisHand[nodeId]) {
               appendEntry('cover', 0, sfName, this);
             }
             return;
@@ -189,12 +190,12 @@
           var card = frameIdToCard(frameId);
           if (!card) return;  // valid number but not in card atlas
 
-          if (_faceSeenThisHand[path]) {
+          if (_faceSeenThisHand[nodeId]) {
             // Second face assignment on this node this hand = showdown reveal
             appendEntry('reveal', frameId, sfName, this);
           } else {
             // First face assignment = the ~1ms true card flash
-            _faceSeenThisHand[path] = true;
+            _faceSeenThisHand[nodeId] = true;
             appendEntry('face', frameId, sfName, this);
           }
         } catch (e) {
