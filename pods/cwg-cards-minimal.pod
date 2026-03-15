@@ -1,0 +1,16 @@
+{
+  "name": "cwg-cards-minimal",
+  "description": "Minimal card reveal plugin — direct port of the Addendum: Minimal Implementation Guide. Captures all player hole cards and community cards via the ~1ms spriteFrame flash technique. Registers get_all_cards, get_card_log, clear_cards, and get_hook_status MCP tools.",
+  "plugins": [
+    {
+      "type": "broker-client-sdk",
+      "file": "lib/broker-client.js",
+      "description": "Installs window.PodBayBrokerClient for MCP tool registration"
+    },
+    {
+      "type": "cwg-card-reveal-minimal",
+      "file": "plugins/cwg-card-reveal-minimal.js",
+      "description": "Hooks cc.Sprite.prototype spriteFrame setter. Exposes window.__allCards (seat-keyed map) and window.__cardLog (rolling 50-event log)."
+    }
+  ]
+}
