@@ -163,6 +163,16 @@
       "description": "MCP tool: pre_raise — arm or disarm the pre-all-in toggle"
     },
     {
+      "type": "cwg-lobby-status",
+      "file": "plugins/cwg/cwg-lobby-status.js",
+      "description": "Lobby and account visibility — hero display name, userId, chip balance, observed tournament list; get_account_info, get_lobby_tournaments (2 MCP tools)"
+    },
+    {
+      "type": "cwg-strategy-hook",
+      "file": "plugins/cwg/cwg-strategy-hook.js",
+      "description": "External strategy plug-in point — supports off/validate_only/auto modes, built-in strategies (always_fold, passive, tight_fold), custom strategy fn; set_strategy_mode, get_strategy_decision, get_strategy_status (3 MCP tools)"
+    },
+    {
       "type": "cwg-smoke-test",
       "file": "plugins/cwg/cwg-smoke-test.js",
       "description": "MCP tool: run_smoke_test — verifies all infrastructure globals and hook plugins are loaded correctly"
