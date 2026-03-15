@@ -23,6 +23,16 @@
       "description": "Tournament structure and live progress — blind level, sb/bb/ante, level time remaining, players entered/running/eliminated, prize pool, hero M-ratio and rank (3 MCP tools)"
     },
     {
+      "type": "cwg-proto-action",
+      "file": "plugins/cwg/cwg-proto-action.js",
+      "description": "Wire-level action sender — sends fold/check/call/bet/raise/allin as ActionReq protobuf frames, gates on isHeroTurn, falls back to DOM click, captures ActionRes (7 MCP tools)"
+    },
+    {
+      "type": "cwg-proto-action-amount",
+      "file": "plugins/cwg/cwg-proto-action-amount.js",
+      "description": "Smart bet sizing resolver — converts 'pot','half','2bb','75','3x',raw chips to exact chip amounts; resolve_amount, proto_bet_amount, proto_raise_amount (3 MCP tools)"
+    },
+    {
       "type": "cwg-core",
       "file": "plugins/cwg/cwg-core.js",
       "description": "Cocos2d scene utilities shared by all cwg plugins (findNode, getText, getGameView, enableParentChain)"
