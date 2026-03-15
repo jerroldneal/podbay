@@ -171,26 +171,29 @@
         try {
           if (!frame) return;
           var sfName = frame._name || frame.name || '';
+
+          // Back-face check must come BEFORE parseInt — 'cards_back_0' parses as NaN
+          if (isBackFace(sfName)) {
+            // Cover event — back-face texture applied after face assignment
+            appendEntry('cover', 0, sfName, this);
+            return;
+          }
+
           var frameId = parseInt(sfName, 10);
           if (isNaN(frameId)) return;  // non-numeric frame name — not a card
 
           var path = nodePath(this);
 
-          if (isBackFace(sfName)) {
-            // Cover event — record but do NOT overwrite face capture
-            appendEntry('cover', frameId, sfName, this);
-          } else {
-            var card = frameIdToCard(frameId);
-            if (!card) return;  // valid number but not in card atlas
+          var card = frameIdToCard(frameId);
+          if (!card) return;  // valid number but not in card atlas
 
-            if (_faceSeenThisHand[path]) {
-              // Second face assignment on this node this hand = showdown reveal
-              appendEntry('reveal', frameId, sfName, this);
-            } else {
-              // First face assignment = the ~1ms true card flash
-              _faceSeenThisHand[path] = true;
-              appendEntry('face', frameId, sfName, this);
-            }
+          if (_faceSeenThisHand[path]) {
+            // Second face assignment on this node this hand = showdown reveal
+            appendEntry('reveal', frameId, sfName, this);
+          } else {
+            // First face assignment = the ~1ms true card flash
+            _faceSeenThisHand[path] = true;
+            appendEntry('face', frameId, sfName, this);
           }
         } catch (e) {
           // Never let hook errors propagate to engine
