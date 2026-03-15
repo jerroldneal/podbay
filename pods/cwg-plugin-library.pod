@@ -3,6 +3,11 @@
   "description": "CWG SRP plugin library — observation (table state, cards, bet state) + precise action tools (fold/call/check/bet/raise/allin + pre-action variants) + protobuf wire interception (proto-tap)",
   "plugins": [
     {
+      "type": "cwg-websocket-inspector",
+      "file": "plugins/cwg/cwg-websocket-inspector.js",
+      "description": "WebSocket connection inspector — patches window.WebSocket to track all connections with URL, readyState, message counts in/out, last message timestamp; get_websocket_connections, get_websocket_connection, clear_closed_websockets (3 MCP tools)"
+    },
+    {
       "type": "cwg-proto-tap",
       "file": "plugins/cwg/cwg-proto-tap.js",
       "description": "WebSocket interceptor — patches WS constructor + prototype.send, decodes CWG protobuf frames, provides event bus (CWGProtoTap) and 5 MCP tools"
@@ -41,6 +46,11 @@
       "type": "cwg-action-log",
       "file": "plugins/cwg/cwg-action-log.js",
       "description": "Hero action history log with ActionRes codes — records hero actions with street, pot, stack, result; get_action_log, get_last_action_result_log, clear_action_log (3 MCP tools)"
+    },
+    {
+      "type": "cwg-node-inspector",
+      "file": "plugins/cwg/cwg-node-inspector.js",
+      "description": "Cocos2d click-to-inspect tool — hooks cc.Node._onTouchBegan to capture clicked node name, uuid, parent chain, components, position, size, children; set_node_inspect, get_node_inspect_log, get_last_clicked_node, clear_node_inspect_log (4 MCP tools)"
     },
     {
       "type": "cwg-core",
