@@ -33,6 +33,16 @@
       "description": "Smart bet sizing resolver — converts 'pot','half','2bb','75','3x',raw chips to exact chip amounts; resolve_amount, proto_bet_amount, proto_raise_amount (3 MCP tools)"
     },
     {
+      "type": "cwg-hand-result",
+      "file": "plugins/cwg/cwg-hand-result.js",
+      "description": "Complete hand history recorder — community cards, hole cards at showdown, all actions in sequence, pot distribution, winners with hand type; get_last_hand, get_hand_history, clear_hand_history (3 MCP tools)"
+    },
+    {
+      "type": "cwg-action-log",
+      "file": "plugins/cwg/cwg-action-log.js",
+      "description": "Hero action history log with ActionRes codes — records hero actions with street, pot, stack, result; get_action_log, get_last_action_result_log, clear_action_log (3 MCP tools)"
+    },
+    {
       "type": "cwg-core",
       "file": "plugins/cwg/cwg-core.js",
       "description": "Cocos2d scene utilities shared by all cwg plugins (findNode, getText, getGameView, enableParentChain)"
