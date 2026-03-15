@@ -595,15 +595,22 @@
           },
           handler: function (args) {
             var targetHand = (args && args.handIndex !== undefined) ? args.handIndex : handIndex;
-            // Collect all hide-type flips for target hand
+            // Collect seat hole card flips — seatIndex >= 0 means a player seat (not community).
+            // The engine always passes _showHolder to flipCardAction even for opponent cards that
+            // get immediately covered — holderType:'hide' never fires. Filter by seat instead.
+            // Each card has 2 sprite renderers (normal @ 0.7 + celebrity @ 0.44) so deduplicate
+            // by cardId within each seat, keeping the first occurrence.
             var byHand = {};
+            var seen = {}; // "handIndex:seatIndex:cardId" → true
             for (var i = 0; i < flipLog.length; i++) {
               var e = flipLog[i];
-              if (e.holderType !== 'hide') continue;
+              if (e.seatIndex < 0) continue;  // community cards — skip
               var hi = e.handIndex;
-              if (!byHand[hi]) byHand[hi] = {};
               var si = e.seatIndex;
-              // Keep ALL cards per seat (a seat gets 2 hole cards)
+              var key = hi + ':' + si + ':' + e.cardId;
+              if (seen[key]) continue;  // duplicate renderer — skip
+              seen[key] = true;
+              if (!byHand[hi]) byHand[hi] = {};
               if (!byHand[hi][si]) byHand[hi][si] = [];
               byHand[hi][si].push({ card: e.card, cardId: e.cardId, clock: e.clock, ts: e.ts });
             }
