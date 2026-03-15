@@ -1,7 +1,12 @@
 {
   "name": "cwg-plugin-library",
-  "description": "CWG SRP plugin library — observation (table state, cards, bet state) + precise action tools (fold/call/check/bet/raise/allin + pre-action variants)",
+  "description": "CWG SRP plugin library — observation (table state, cards, bet state) + precise action tools (fold/call/check/bet/raise/allin + pre-action variants) + protobuf wire interception (proto-tap)",
   "plugins": [
+    {
+      "type": "cwg-proto-tap",
+      "file": "plugins/cwg/cwg-proto-tap.js",
+      "description": "WebSocket interceptor — patches WS constructor + prototype.send, decodes CWG protobuf frames, provides event bus (CWGProtoTap) and 5 MCP tools"
+    },
     {
       "type": "cwg-core",
       "file": "plugins/cwg/cwg-core.js",
