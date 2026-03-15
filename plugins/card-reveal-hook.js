@@ -352,6 +352,61 @@
           }
         },
         {
+          name: 'get_hand_summary',
+          description: 'Returns a compact per-seat summary of cards captured at deal time (face events). quickCover:true means the card was covered within 50ms — it was never visibly shown to anyone and is the primary intelligence target. community shows board cards by position (F1/F2/F3/T/R).',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              handIndex: {
+                type: 'number',
+                description: 'Which hand to summarise (default: current/latest)'
+              }
+            }
+          },
+          handler: function (args) {
+            // Build a map from nodeId → cover timestamp for fast lookup
+            var coverTsByNode = {};
+            for (var ci = 0; ci < log.length; ci++) {
+              var ce = log[ci];
+              if (ce.event === 'cover' && ce.nodeId) {
+                // Keep the EARLIEST cover per node (deal-time cover beats end-of-hand cover)
+                if (coverTsByNode[ce.nodeId] === undefined || ce.ts < coverTsByNode[ce.nodeId]) {
+                  coverTsByNode[ce.nodeId] = ce.ts;
+                }
+              }
+            }
+
+            var targetHand = (args && args.handIndex !== undefined) ? args.handIndex : handIndex;
+            var seats = {};    // seatIndex → [{ card, quickCover, ts, clock }]
+            var community = {};  // commPos → { card, ts, clock }
+
+            for (var fi = 0; fi < log.length; fi++) {
+              var fe = log[fi];
+              if (fe.event !== 'face') continue;
+              if (fe.handIndex !== targetHand) continue;
+              if (!fe.card) continue;
+
+              var coverTs = coverTsByNode[fe.nodeId];
+              var quickCover = (coverTs !== undefined) && ((coverTs - fe.ts) < COVER_END_OF_HAND_THRESHOLD_MS);
+
+              if (fe.commPos) {
+                // Community card — store by position, most recent face wins
+                community[fe.commPos] = { card: fe.card, ts: fe.ts, clock: fe.clock };
+              } else if (fe.seatIndex !== undefined && fe.seatIndex >= 0) {
+                if (!seats[fe.seatIndex]) seats[fe.seatIndex] = [];
+                seats[fe.seatIndex].push({ card: fe.card, quickCover: quickCover, ts: fe.ts, clock: fe.clock });
+              }
+            }
+
+            return {
+              handIndex: targetHand,
+              hookInstalled: _hookInstalled,
+              community: community,
+              seats: seats
+            };
+          }
+        },
+        {
           name: 'clear_card_log',
           description: 'Clears the card reveal log and increments the hand index. Call this at the start of each new hand.',
           inputSchema: { type: 'object', properties: {} },
