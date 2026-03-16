@@ -99,7 +99,15 @@
     tryBootstrap: tryBootstrap,
     isInstalled: function () { return _installed; },
     getFlipLog: function (last) { return last ? flipLog.slice(-last) : flipLog.slice(); },
-    clearFlipLog: function () { flipLog.length = 0; }
+    clearFlipLog: function () { flipLog.length = 0; },
+    status: function () {
+      return {
+        installed: _installed,
+        logSize: flipLog.length,
+        maxLogSize: MAX_FLIP_LOG,
+        ready: _installed && flipLog.length >= 0
+      };
+    }
   };
 
   // ── MCP tool ──────────────────────────────────────────────────────────────

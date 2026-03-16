@@ -79,7 +79,16 @@
     enable: function (clearLog) { verboseEnabled = true; if (clearLog) verboseLog.length = 0; },
     disable: function () { verboseEnabled = false; },
     getLog: function (last) { return last ? verboseLog.slice(-last) : verboseLog.slice(); },
-    clear: function () { verboseLog.length = 0; }
+    clear: function () { verboseLog.length = 0; },
+    status: function () {
+      return {
+        installed: _installed,
+        enabled: verboseEnabled,
+        logSize: verboseLog.length,
+        maxLogSize: MAX_VERBOSE_LOG,
+        ready: _installed
+      };
+    }
   };
 
   // ── MCP tools ─────────────────────────────────────────────────────────────

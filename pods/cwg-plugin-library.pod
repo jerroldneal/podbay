@@ -57,11 +57,11 @@
       "file": "plugins/cwg/cwg-action-validator.js",
       "description": "Pre-flight action validator — checks fold/check/call/bet/raise/allin against current game state, returns { valid, reason }; validate_action, get_legal_actions (2 MCP tools)"
     },
-    {
-      "type": "cwg-lobby-control",
-      "file": "plugins/cwg/cwg-lobby-control.js",
-      "description": "Lobby-level controls — sends LeaveRoomReq (gated on isHeroTurn === false) and RoomSnapshotReq; leave_room, request_room_snapshot (2 MCP tools)"
-    },
+    # {
+    #   "type": "cwg-lobby-control",
+    #   "file": "plugins/cwg/cwg-lobby-control.js",
+    #   "description": "Lobby-level controls — sends LeaveRoomReq (gated on isHeroTurn === false) and RoomSnapshotReq; leave_room, request_room_snapshot (2 MCP tools)"
+    # },
     {
       "type": "cwg-core",
       "file": "plugins/cwg/cwg-core.js",
@@ -162,11 +162,11 @@
       "file": "plugins/cwg/cwg-pre-raise.js",
       "description": "MCP tool: pre_raise — arm or disarm the pre-all-in toggle"
     },
-    {
-      "type": "cwg-lobby-status",
-      "file": "plugins/cwg/cwg-lobby-status.js",
-      "description": "Lobby and account visibility — hero display name, userId, chip balance, observed tournament list; get_account_info, get_lobby_tournaments (2 MCP tools)"
-    },
+    # {
+    #   "type": "cwg-lobby-status",
+    #   "file": "plugins/cwg/cwg-lobby-status.js",
+    #   "description": "Lobby and account visibility — hero display name, userId, chip balance, observed tournament list; get_account_info, get_lobby_tournaments (2 MCP tools)"
+    # },
     {
       "type": "cwg-strategy-hook",
       "file": "plugins/cwg/cwg-strategy-hook.js",

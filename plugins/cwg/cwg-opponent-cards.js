@@ -195,7 +195,16 @@
     },
     pause: function () { paused = true; },
     resume: function () { paused = false; },
-    isHookInstalled: function () { return _hookInstalled; }
+    isHookInstalled: function () { return _hookInstalled },
+    status: function () {
+      return {
+        hookInstalled: _hookInstalled,
+        logSize: log.length,
+        maxLogSize: MAX_LOG,
+        paused: paused,
+        ready: _hookInstalled
+      };
+    }
   };
 
   // Also expose log reference for backward compat
