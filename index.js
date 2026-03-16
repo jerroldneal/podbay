@@ -15,6 +15,32 @@ const REGISTRY_PATH = path.join(__dirname, '.opted-in.json');
 
 function log(...args) { console.log(TAG, ...args); }
 
+// ── Path matching (cross-environment) ─────────────────────────────────────
+
+/**
+ * Extract the app folder name from an ASAR path.
+ * Handles both Windows paths (C:\...\clubwpt-desktop\resources\app.asar)
+ * and Docker paths (/host/programs/clubwpt-desktop/resources/app.asar).
+ */
+function appFolderName(asarPath) {
+  if (!asarPath) return null;
+  const normalized = asarPath.replace(/\\/g, '/');
+  const parts = normalized.split('/');
+  const resIdx = parts.lastIndexOf('resources');
+  return resIdx > 0 ? parts[resIdx - 1] : null;
+}
+
+/**
+ * Compare two ASAR paths for logical equality, tolerating Windows vs Docker
+ * path prefix differences (e.g. C:\Users\...\Programs vs /host/programs).
+ */
+function sameAsarPath(a, b) {
+  if (a === b) return true;
+  const fa = appFolderName(a);
+  const fb = appFolderName(b);
+  return Boolean(fa && fb && fa === fb);
+}
+
 // ── Name helpers ─────────────────────────────────────────────────────────
 
 /**
@@ -120,7 +146,7 @@ function optIn(asarPath, name, onProgress) {
   if (err) throw new Error(err);
 
   const reg = loadRegistry();
-  if (reg[name] && reg[name].asarPath !== asarPath) {
+  if (reg[name] && !sameAsarPath(reg[name].asarPath, asarPath)) {
     throw new Error(`Name "${name}" is already used by another app`);
   }
 
@@ -152,7 +178,7 @@ function optIn(asarPath, name, onProgress) {
 
   // Remove any existing entry for this asarPath under a different name
   for (const [n, entry] of Object.entries(reg)) {
-    if (n !== name && entry.asarPath === asarPath) { delete reg[n]; }
+    if (n !== name && sameAsarPath(entry.asarPath, asarPath)) { delete reg[n]; }
   }
   reg[name] = { asarPath, pods: reg[name] ? (reg[name].pods || []) : [] };
   saveRegistry(reg);
@@ -178,7 +204,7 @@ function optOut(asarPath, onProgress) {
 
   const reg = loadRegistry();
   for (const [n, entry] of Object.entries(reg)) {
-    if (entry.asarPath === asarPath) { delete reg[n]; }
+    if (sameAsarPath(entry.asarPath, asarPath)) { delete reg[n]; }
   }
   saveRegistry(reg);
 
@@ -200,7 +226,7 @@ function cliList() {
   const apps = discover();
   const reg = loadRegistry();
   const result = apps.map((a, i) => {
-    const name = Object.entries(reg).find(([, p]) => p === a.asarPath || (p && p.asarPath === a.asarPath));
+    const name = Object.entries(reg).find(([, p]) => p && sameAsarPath(p.asarPath, a.asarPath));
     return {
       index: i + 1,
       name: a.name,
@@ -217,7 +243,7 @@ function cliStatus(nameOrIndex) {
   const app = resolveApp(apps, nameOrIndex);
   if (!app) { log('App not found:', nameOrIndex); process.exit(1); }
   const reg = loadRegistry();
-  const entry = Object.entries(reg).find(([, p]) => p === app.asarPath || (p && p.asarPath === app.asarPath));
+  const entry = Object.entries(reg).find(([, p]) => p && sameAsarPath(p.asarPath, app.asarPath));
   console.log(JSON.stringify({
     name: app.name,
     status: asar.status(app.asarPath),
@@ -244,10 +270,10 @@ function cliOptOut(nameOrIndex) {
 function handleCli(args) {
   const cmd = args[0];
   switch (cmd) {
-    case 'list':    return cliList();
-    case 'opt-in':  return cliOptIn(args[1], args[2]);
+    case 'list': return cliList();
+    case 'opt-in': return cliOptIn(args[1], args[2]);
     case 'opt-out': return cliOptOut(args[1]);
-    case 'status':  return cliStatus(args[1]);
+    case 'status': return cliStatus(args[1]);
     case 'pods': {
       const sub = args[1];
       switch (sub) {
@@ -345,7 +371,7 @@ async function interactive() {
       case '2': case 'opt-out': optOut(app.asarPath); break;
       case '3': case 'pods': {
         const reg = loadRegistry();
-        const entry = Object.entries(reg).find(([, v]) => v === app.asarPath || (v && v.asarPath === app.asarPath));
+        const entry = Object.entries(reg).find(([, v]) => v && sameAsarPath(v.asarPath, app.asarPath));
         if (!entry) { log('App must be opted-in first.'); break; }
         const name = entry[0];
         const appPods = getAppPods(name);
