@@ -1,14 +1,8 @@
-; (function () {
-  'use strict';
-
-  if (window.CWGRoomConfig) return;
+'use strict';
 
   var TAG = '[CWGRoomConfig]';
 
-  if (!window.CWGProtoTap) {
-    console.warn(TAG, 'CWGProtoTap not found — cwg-proto-tap must load first');
-    return;
-  }
+  var CWGProtoTap = require('cwg-proto-tap');
 
   var _bridge = (window.PodBayBridge && window.PodBayIdentity)
     ? window.PodBayBridge(window.PodBayIdentity.clientId) : null;
@@ -96,7 +90,7 @@
   });
 
   // ── Public API ────────────────────────────────────────────────────────────
-  window.CWGRoomConfig = {
+var CWGRoomConfig = {
     get: function () {
       return JSON.parse(JSON.stringify(_config));
     }
@@ -113,4 +107,6 @@
   );
 
   console.log(TAG, 'registered');
-})();
+
+module.exports = CWGRoomConfig;
+window.CWGRoomConfig = CWGRoomConfig;

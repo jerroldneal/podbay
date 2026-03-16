@@ -10,7 +10,6 @@
  */
 ;(function () {
   'use strict';
-
   var id = window.PodBayIdentity;
   var clientId = id ? id.clientId : 'console-bridge';
   var bridge = window.PodBayBridge(clientId);

@@ -301,6 +301,13 @@
       overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1;
       font-family:'Cascadia Code','Fira Code','Consolas',monospace; font-size:10px; color:var(--text-muted);
     }
+    .plugin-badge {
+      flex-shrink:0; font-size:9px; font-weight:600; padding:1px 5px;
+      border-radius:3px; letter-spacing:.04em; text-transform:uppercase;
+    }
+    .plugin-badge.lib { background:#2d3b2d; color:#6abf69; border:1px solid #4a7a4a; }
+    .plugin-badge.dyn { background:#3b2d1a; color:#e8a44a; border:1px solid #7a4e1a; }
+    .plugin-badge.plugin { background:#1e2535; color:#7aa2f7; border:1px solid #3a4a7a; }
 
     /* ── Client rows ── */
     .client-row {
@@ -960,9 +967,17 @@
         <div class="card-title"><span>🫛 ${esc(pod.name || pod._file)}</span></div>
         <div class="card-meta"><span>${esc(pod.description || 'No description')}</span></div>
         <div class="card-meta"><span>File: ${esc(pod._file)} · ${plugins.length} plugin(s)</span></div>
-        ${plugins.length ? '<ul class="plugins-list">' + plugins.map(p =>
-          `<li><span class="plugin-path">${esc(p.type || 'unnamed')}: ${esc(p.description || p.require || p.file || 'inline code')}</span></li>`
-        ).join('') + '</ul>' : ''}
+        ${plugins.length ? '<ul class="plugins-list">' + plugins.map(p => {
+          let badge;
+          if (p.id && p.cache) {
+            badge = `<span class="plugin-badge lib" title="require('${esc(p.id)}') — inline">lib</span>`;
+          } else if (p.id) {
+            badge = `<span class="plugin-badge dyn" title="require('${esc(p.id)}') — dynamic">dyn</span>`;
+          } else {
+            badge = `<span class="plugin-badge plugin">plugin</span>`;
+          }
+          return `<li>${badge}<span class="plugin-path">${esc(p.type || 'unnamed')}: ${esc(p.description || p.require || p.file || 'inline code')}</span></li>`;
+        }).join('') + '</ul>' : ''}
       </div>`;
     }).join('') + '</div>';
   }

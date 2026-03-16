@@ -1,7 +1,4 @@
-; (function () {
-  'use strict';
-
-  if (window.CWGCardAtlas) return;
+'use strict';
 
   // ── Card atlas ───────────────────────────────────────────────────────────
   // Maps Cocos2d atlas frame IDs → human-readable card strings (e.g. "A♠").
@@ -32,7 +29,7 @@
     return typeof sfName === 'string' && sfName.indexOf('cards_back') === 0;
   }
 
-  window.CWGCardAtlas = {
+var CWGCardAtlas = {
     decode: decode,
     isBackFace: isBackFace,
     SUITS: SUITS,
@@ -40,4 +37,6 @@
   };
 
   console.log('[CWGCardAtlas] ready');
-})();
+
+module.exports = CWGCardAtlas;
+window.CWGCardAtlas = CWGCardAtlas;

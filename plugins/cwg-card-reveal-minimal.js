@@ -120,7 +120,7 @@
       setTimeout(installHook, 500);
       return;
     }
-
+alert('Installing CWG Card Reveal Minimal hook on cc.Sprite.prototype.spriteFrame');
     var proto = cc.Sprite.prototype;
     var desc = Object.getOwnPropertyDescriptor(proto, 'spriteFrame');
     if (!desc || !desc.set) {
@@ -174,7 +174,7 @@
       setTimeout(registerBrokerTools, 1000);
       return;
     }
-
+alert('Registering MCP tools for CWG Card Reveal Minimal plugin');
     var client = new window.PodBayBrokerClient({
       clientId: 'cwg-cards-minimal',
       tools: [

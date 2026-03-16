@@ -1,14 +1,8 @@
-; (function () {
-  'use strict';
-
-  if (window.CWGStrategyHook) return;
+'use strict';
 
   var TAG = '[CWGStrategyHook]';
 
-  if (!window.CWGGameStatus) {
-    console.warn(TAG, 'CWGGameStatus not found — cwg-game-status must load first');
-    return;
-  }
+  var CWGGameStatus = require('cwg-game-status');
 
   var _bridge = (window.PodBayBridge && window.PodBayIdentity)
     ? window.PodBayBridge(window.PodBayIdentity.clientId) : null;
@@ -114,7 +108,7 @@
 
   // ── Public API ─────────────────────────────────────────────────────────
 
-  window.CWGStrategyHook = {
+var CWGStrategyHook = {
     setMode: function (mode) {
       if (!['off', 'validate_only', 'auto'].includes(mode)) {
         return { ok: false, reason: 'Invalid mode. Use: off, validate_only, auto' };
@@ -192,4 +186,6 @@
   );
 
   console.log(TAG, 'registered');
-})();
+
+module.exports = CWGStrategyHook;
+window.CWGStrategyHook = CWGStrategyHook;

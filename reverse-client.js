@@ -16,6 +16,7 @@ const asar = require('./lib/asar');
 
 const TAG = '[PodBay RC]';
 const DEFAULT_URL = 'ws://localhost:3099';
+const PLUGIN_URL_BASE = (process.env.PODBAY_PLUGIN_URL_BASE || 'http://localhost:8080').replace(/\/$/, '');
 const CLIENT_ID = 'podbay';
 const RECONNECT_MS = 3000;
 const MAX_RECONNECT_MS = 30000;
@@ -182,11 +183,39 @@ const tools = [
       // Each plugin is wrapped in its own IIFE + try-catch so that:
       //   - a top-level `return` guard inside a plugin only exits that plugin's wrapper
       //   - an uncaught exception in one plugin doesn't prevent subsequent plugins from running
+      // id + cache:true  → inline code + pre-register in require.cache
+      // id + cache:false → register URL in __podbayModuleUrls; fetched dynamically at require() time
+      // no id            → plain IIFE
       const parts = allPlugins.map(p => {
         const header = '// [PodBay] plugin: ' + (p.type || 'unknown') + ' — ' + (p.description || '');
-        const safe = 'try { (function () {\n' + p.code + '\n})(); }'
-          + ' catch (__e) { console.error("[PodBay] plugin error [' + (p.type || 'unknown') + ']:", __e && __e.message); }';
-        return header + '\n' + safe;
+        let body;
+        if (p.id && p.cache) {
+          // Inline mode: pre-register full module code in require.cache
+          const safeId = p.id.replace(/'/g, "\\'");
+          body = 'try { (function () {\n'
+            + 'var __m = { exports: {}, id: \'' + safeId + '\', loaded: false };\n'
+            + '(function (module, exports) {\n'
+            + p.code + '\n'
+            + '})(__m, __m.exports);\n'
+            + '__m.loaded = true;\n'
+            + 'if (window.require && window.require.cache) window.require.cache[\'' + safeId + '\'] = __m;\n'
+            + '})(); }'
+            + ' catch (__e) { console.error("[PodBay] lib error [' + (p.type || 'unknown') + ']:", __e && __e.message); }';
+        } else if (p.id && p.filePath) {
+          // Dynamic mode: register serve URL; module fetched on first require(id)
+          const safeId = p.id.replace(/'/g, "\\'");
+          const safeUrl = (PLUGIN_URL_BASE + '/' + p.filePath).replace(/'/g, "\\'");
+          body = 'try { (function () {\n'
+            + 'window.__podbayModuleUrls = window.__podbayModuleUrls || {};\n'
+            + 'window.__podbayModuleUrls[\'' + safeId + '\'] = \'' + safeUrl + '\';\n'
+            + '})(); }'
+            + ' catch (__e) { console.error("[PodBay] url-reg error [' + (p.type || 'unknown') + ']:", __e && __e.message); }';
+        } else {
+          // Plain plugin: fire-and-forget IIFE
+          body = 'try { (function () {\n' + p.code + '\n})(); }'
+            + ' catch (__e) { console.error("[PodBay] plugin error [' + (p.type || 'unknown') + ']:", __e && __e.message); }';
+        }
+        return header + '\n' + body;
       });
       const bundle = parts.join('\n\n');
 

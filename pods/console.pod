@@ -36,11 +36,6 @@
       "type": "console-bridge",
       "file": "plugins/console-bridge.js",
       "description": "Composes bridge + hook to provide eval tools and console notification hooks"
-    },
-    {
-      "type": "greeting-file",
-      "file": "lib/greeting.js",
-      "description": "Registers a greeting tool with the MCP broker via the SDK (from external file)"
     }
   ]
 }

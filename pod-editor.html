@@ -213,6 +213,8 @@ function renderPlugins() {
       </div>
       <div class="inline-fields">
         <div class="field"><label>Type</label><input value="${esc(p.type || '')}" onchange="updatePlugin(${i},'type',this.value)"></div>
+        <div class="field"><label>ID <small style="color:var(--text-muted);font-weight:normal">(lib module require id)</small></label><input value="${esc(p.id || '')}" onchange="updatePlugin(${i},'id',this.value)" placeholder="e.g. cwg-core"></div>
+        <div class="field"><label style="display:flex;align-items:center;gap:6px"><input type="checkbox" ${p.cache ? 'checked' : ''} onchange="updatePlugin(${i},'cache',this.checked)"> Cache <small style="color:var(--text-muted);font-weight:normal">(inline at inject; default: dynamic)</small></label></div>
         <div class="field"><label>Description</label><input value="${esc(p.description || '')}" onchange="updatePlugin(${i},'description',this.value)"></div>
       </div>
       <div class="inline-fields">
@@ -251,6 +253,8 @@ async function savePod() {
   const plugins = currentPod.plugins.map(p => {
     const clean = {};
     if (p.type) clean.type = p.type;
+    if (p.id) clean.id = p.id;
+    if (p.id && p.cache) clean.cache = true;
     if (p.description) clean.description = p.description;
     if (p.require) clean.require = p.require;
     if (p.file) clean.file = p.file;

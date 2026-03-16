@@ -1,7 +1,4 @@
-; (function () {
-  'use strict';
-
-  if (window.CWGActionCore) return;
+'use strict';
 
   var TAG = '[CWGActionCore]';
 
@@ -96,7 +93,7 @@
     return { success: false, error: 'button not found', tried: candidates };
   }
 
-  window.CWGActionCore = {
+var CWGActionCore = {
     click: click,
     clickButton: clickButton,
     getGameView: getGameView,
@@ -105,4 +102,6 @@
   };
 
   console.log(TAG, 'ready');
-})();
+
+module.exports = CWGActionCore;
+window.CWGActionCore = CWGActionCore;

@@ -1,7 +1,4 @@
-; (function () {
-  'use strict';
-
-  if (window.CWGHandLifecycle) return;
+'use strict';
 
   // ── Hand index & new-hand detection ─────────────────────────────────────
   // Tracks the current hand number. Incremented automatically when the end-of-
@@ -90,7 +87,7 @@
     delete _pendingFlip[spriteId];
   }
 
-  window.CWGHandLifecycle = {
+var CWGHandLifecycle = {
     schedule: schedule,      // call when end-of-hand cover detected
     cancel: cancel,        // call when a new deal starts before timer fires
     getHandIndex: getHandIndex,
@@ -110,4 +107,6 @@
   };
 
   console.log('[CWGHandLifecycle] ready');
-})();
+
+module.exports = CWGHandLifecycle;
+window.CWGHandLifecycle = CWGHandLifecycle;

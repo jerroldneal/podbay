@@ -3,22 +3,30 @@
   "description": "CWG SRP plugin library — observation (table state, cards, bet state) + precise action tools (fold/call/check/bet/raise/allin + pre-action variants) + protobuf wire interception (proto-tap)",
   "plugins": [
     {
+      "type": "broker-client-sdk",
+      "file": "lib/broker-client.js",
+      "description": "Installs window.PodBayBrokerClient for MCP tool registration"
+    },
+    {
       "type": "cwg-websocket-inspector",
       "file": "plugins/cwg/cwg-websocket-inspector.js",
       "description": "WebSocket connection inspector — patches window.WebSocket to track all connections with URL, readyState, message counts in/out, last message timestamp; get_websocket_connections, get_websocket_connection, clear_closed_websockets (3 MCP tools)"
     },
     {
       "type": "cwg-proto-tap",
+      "id": "cwg-proto-tap",
       "file": "plugins/cwg/cwg-proto-tap.js",
       "description": "WebSocket interceptor — patches WS constructor + prototype.send, decodes CWG protobuf frames, provides event bus (CWGProtoTap) and 5 MCP tools"
     },
     {
       "type": "cwg-game-status",
+      "id": "cwg-game-status",
       "file": "plugins/cwg/cwg-game-status.js",
       "description": "Accumulated game status snapshot from protobuf wire events — phase, seats, pot, community cards, hero hole cards, action options (signal-fetch, 3 MCP tools)"
     },
     {
       "type": "cwg-room-config",
+      "id": "cwg-room-config",
       "file": "plugins/cwg/cwg-room-config.js",
       "description": "Room configuration snapshot from EnterRoomRes/RoomSnapshotMsg — roomId, gameType, limitType, blinds, ante, buyIn range, seat count, timeLimit, tourId, tourName (1 MCP tool)"
     },
@@ -29,11 +37,13 @@
     },
     {
       "type": "cwg-proto-action",
+      "id": "cwg-proto-action",
       "file": "plugins/cwg/cwg-proto-action.js",
       "description": "Wire-level action sender — sends fold/check/call/bet/raise/allin as ActionReq protobuf frames, gates on isHeroTurn, falls back to DOM click, captures ActionRes (7 MCP tools)"
     },
     {
       "type": "cwg-proto-action-amount",
+      "id": "cwg-proto-action-amount",
       "file": "plugins/cwg/cwg-proto-action-amount.js",
       "description": "Smart bet sizing resolver — converts 'pot','half','2bb','75','3x',raw chips to exact chip amounts; resolve_amount, proto_bet_amount, proto_raise_amount (3 MCP tools)"
     },
@@ -57,28 +67,32 @@
       "file": "plugins/cwg/cwg-action-validator.js",
       "description": "Pre-flight action validator — checks fold/check/call/bet/raise/allin against current game state, returns { valid, reason }; validate_action, get_legal_actions (2 MCP tools)"
     },
-    # {
-    #   "type": "cwg-lobby-control",
-    #   "file": "plugins/cwg/cwg-lobby-control.js",
-    #   "description": "Lobby-level controls — sends LeaveRoomReq (gated on isHeroTurn === false) and RoomSnapshotReq; leave_room, request_room_snapshot (2 MCP tools)"
-    # },
+    {
+      "type": "cwg-lobby-control",
+      "file": "plugins/cwg/cwg-lobby-control.js",
+      "description": "Lobby-level controls — sends LeaveRoomReq (gated on isHeroTurn === false) and RoomSnapshotReq; leave_room, request_room_snapshot (2 MCP tools)"
+    },
     {
       "type": "cwg-core",
+      "id": "cwg-core",
       "file": "plugins/cwg/cwg-core.js",
       "description": "Cocos2d scene utilities shared by all cwg plugins (findNode, getText, getGameView, enableParentChain)"
     },
     {
       "type": "cwg-card-atlas",
+      "id": "cwg-card-atlas",
       "file": "plugins/cwg/cwg-card-atlas.js",
       "description": "Frame ID → card string decoder (52-card atlas, isBackFace)"
     },
     {
       "type": "cwg-hand-lifecycle",
+      "id": "cwg-hand-lifecycle",
       "file": "plugins/cwg/cwg-hand-lifecycle.js",
       "description": "Hand index tracking, new-hand debounce, per-sprite face/flip state"
     },
     {
       "type": "cwg-action-core",
+      "id": "cwg-action-core",
       "file": "plugins/cwg/cwg-action-core.js",
       "description": "Button finder and clicker shared by all action plugins (click, clickButton, getActionPanelComp)"
     },
@@ -104,6 +118,7 @@
     },
     {
       "type": "cwg-opponent-cards",
+      "id": "cwg-opponent-cards",
       "file": "plugins/cwg/cwg-opponent-cards.js",
       "description": "MCP tools: get_card_log, get_opponent_hole_cards, clear_card_log — intercepts cc.Sprite.prototype.spriteFrame to capture opponent hole cards"
     },
@@ -162,13 +177,14 @@
       "file": "plugins/cwg/cwg-pre-raise.js",
       "description": "MCP tool: pre_raise — arm or disarm the pre-all-in toggle"
     },
-    # {
-    #   "type": "cwg-lobby-status",
-    #   "file": "plugins/cwg/cwg-lobby-status.js",
-    #   "description": "Lobby and account visibility — hero display name, userId, chip balance, observed tournament list; get_account_info, get_lobby_tournaments (2 MCP tools)"
-    # },
+    {
+      "type": "cwg-lobby-status",
+      "file": "plugins/cwg/cwg-lobby-status.js",
+      "description": "Lobby and account visibility — hero display name, userId, chip balance, observed tournament list; get_account_info, get_lobby_tournaments (2 MCP tools)"
+    },
     {
       "type": "cwg-strategy-hook",
+      "id": "cwg-strategy-hook",
       "file": "plugins/cwg/cwg-strategy-hook.js",
       "description": "External strategy plug-in point — supports off/validate_only/auto modes, built-in strategies (always_fold, passive, tight_fold), custom strategy fn; set_strategy_mode, get_strategy_decision, get_strategy_status (3 MCP tools)"
     },

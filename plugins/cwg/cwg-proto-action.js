@@ -1,19 +1,10 @@
-; (function () {
-  'use strict';
-
-  if (window.CWGProtoAction) return;
+'use strict';
 
   var TAG = '[CWGProtoAction]';
 
   // ── Dependency check ─────────────────────────────────────────────────────
-  if (!window.CWGProtoTap) {
-    console.warn(TAG, 'CWGProtoTap not found — cwg-proto-tap must load first');
-    return;
-  }
-  if (!window.CWGGameStatus) {
-    console.warn(TAG, 'CWGGameStatus not found — cwg-game-status must load first');
-    return;
-  }
+  var CWGProtoTap = require('cwg-proto-tap');
+  var CWGGameStatus = require('cwg-game-status');
 
   var _bridge = (window.PodBayBridge && window.PodBayIdentity)
     ? window.PodBayBridge(window.PodBayIdentity.clientId) : null;
@@ -127,7 +118,7 @@
   }
 
   // ── Public API ────────────────────────────────────────────────────────────
-  window.CWGProtoAction = {
+var CWGProtoAction = {
     fold: function () { return sendAction(ACTION.FOLD, 0); },
     check: function () { return sendAction(ACTION.CHECK, 0); },
     call: function () {
@@ -209,4 +200,6 @@
   );
 
   console.log(TAG, 'registered');
-})();
+
+module.exports = CWGProtoAction;
+window.CWGProtoAction = CWGProtoAction;

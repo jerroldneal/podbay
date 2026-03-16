@@ -1,7 +1,4 @@
-; (function () {
-  'use strict';
-
-  if (window.CWGProtoTap) return;
+'use strict';
 
   var TAG = '[CWGProtoTap]';
 
@@ -230,7 +227,7 @@
   }
 
   // ── Public API ────────────────────────────────────────────────────────────
-  window.CWGProtoTap = {
+var CWGProtoTap = {
     /** Subscribe to a decoded message type by label (e.g. 'NeedActionMsg') or '*' for all */
     on: function (label, fn) {
       if (!_listeners[label]) _listeners[label] = [];
@@ -330,4 +327,6 @@
   }
 
   console.log(TAG, 'initialized — WebSocket constructor patched + prototype.send intercepted');
-}());
+
+module.exports = CWGProtoTap;
+window.CWGProtoTap = CWGProtoTap;

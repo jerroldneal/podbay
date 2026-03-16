@@ -1,7 +1,4 @@
-; (function () {
-  'use strict';
-
-  if (window.CWGOpponentCards) return;
+'use strict';
 
   var TAG = '[CWGOpponentCards]';
   var MAX_LOG = 500;
@@ -187,7 +184,7 @@
   }
 
   // ── Public API ────────────────────────────────────────────────────────────
-  window.CWGOpponentCards = {
+var CWGOpponentCards = {
     getLog: function (last) { return last ? log.slice(-last) : log.slice(); },
     clear: function () {
       log.length = 0;
@@ -277,4 +274,6 @@
   installHook();
 
   console.log(TAG + ' registered');
-})();
+
+module.exports = CWGOpponentCards;
+window.CWGOpponentCards = CWGOpponentCards;

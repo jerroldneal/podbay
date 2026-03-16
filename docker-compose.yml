@@ -40,3 +40,6 @@ services:
       - ./broker-client-dashboard.html:/usr/share/nginx/html/broker-client-dashboard.html:ro
       - ./workshops/telemetry-bus/lib/bus.js:/usr/share/nginx/html/lib/bus.js:ro
       - ./workshops/telemetry-bus/telemetry-dashboard.html:/usr/share/nginx/html/telemetry-dashboard.html:ro
+      # Plugin file serving — enables dynamic require() at runtime
+      - ./plugins:/usr/share/nginx/html/plugins:ro
+      - ./lib:/usr/share/nginx/html/lib-podbay:ro

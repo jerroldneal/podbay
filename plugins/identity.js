@@ -64,7 +64,9 @@
     roomId: roomId,
     windowType: windowType,
     windowId: windowId,
-    url: location.href
+    url: location.href,
+    get isGame() { return type === 'table'; },
+    get isLobby() { return type === 'lobby'; }
   };
 
   Object.defineProperty(identity, 'title', {

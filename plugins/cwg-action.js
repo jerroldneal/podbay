@@ -1,6 +1,7 @@
 ;(function () {
   'use strict';
 
+  if (!window.PodBayIdentity.isGame) return;
   if (window.__cwgActionInstalled) return;
   window.__cwgActionInstalled = true;
 
@@ -30,6 +31,11 @@
     var scene = cc.director.getRunningScene();
     if (!scene) return null;
     return findNode(scene, 'holdem_game_view');
+  }
+
+  function isGameView() {
+    var gv = getGameView();
+    return !!gv;
   }
 
   function enableParentChain(node, stopAt) {
@@ -137,4 +143,5 @@
     getGameView: getGameView,
     BUTTON_MAP: BUTTON_MAP
   };
+  alert(TAG + ' API exposed on window.__cwgAction with executeAction(actionName) method');
 })();

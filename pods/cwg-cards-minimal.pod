@@ -11,6 +11,11 @@
       "type": "cwg-card-reveal-minimal",
       "file": "plugins/cwg-card-reveal-minimal.js",
       "description": "Hooks cc.Sprite.prototype spriteFrame setter. Exposes window.__allCards (seat-keyed map) and window.__cardLog (rolling 50-event log)."
-    }
+    },
+    {
+      "type": "cwg-websocket-inspector",
+      "file": "plugins/cwg/cwg-websocket-inspector.js",
+      "description": "WebSocket connection inspector — patches window.WebSocket to track all connections with URL, readyState, message counts in/out, last message timestamp; get_websocket_connections, get_websocket_connection, clear_closed_websockets (3 MCP tools)"
+    },
   ]
 }
