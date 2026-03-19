@@ -27,6 +27,7 @@ const POLL_INTERVAL_MS = 5000; // poll broker for new clients
 let activeWs = null;  // current WebSocket, set on connect
 const _pushedClients = new Set(); // track clients we've already pushed to
 let _pollTimer = null; // client poll timer
+let _lastSweepError = null; // deduplicate repeated sweep errors
 
 function log(...args) { process.stderr.write(TAG + ' ' + args.join(' ') + '\n'); }
 
@@ -484,16 +485,30 @@ function fetchBrokerClients(ws) {
           }
         }
         if (pushed > 0) log('Sweep complete:', pushed, 'client(s) received plugins');
-        notifyPush('sweep-done', { clientsFound: clients.length, clientsPushed: pushed });
+        // Only notify when something actually happened (avoid 5s poll noise)
+        if (pushed > 0) {
+          notifyPush('sweep-done', { clientsFound: clients.length, clientsPushed: pushed });
+        }
+        _lastSweepError = null; // clear error dedup on success
       } catch (e) {
         log('Sweep parse error:', e.message);
-        notifyPush('sweep-error', { error: e.message });
+        // Only notify on first occurrence of this error (avoid repeated noise)
+        if (_lastSweepError !== e.message) {
+          _lastSweepError = e.message;
+          notifyPush('sweep-error', { error: e.message });
+        }
       }
     });
   });
 
-  req.on('error', (e) => { log('Sweep HTTP error:', e.message); notifyPush('sweep-error', { error: 'HTTP: ' + e.message }); });
-  req.on('timeout', () => { req.destroy(); log('Sweep HTTP timeout'); notifyPush('sweep-error', { error: 'HTTP timeout' }); });
+  req.on('error', (e) => {
+    log('Sweep HTTP error:', e.message);
+    if (_lastSweepError !== e.message) { _lastSweepError = e.message; notifyPush('sweep-error', { error: 'HTTP: ' + e.message }); }
+  });
+  req.on('timeout', () => {
+    req.destroy(); log('Sweep HTTP timeout');
+    if (_lastSweepError !== 'HTTP timeout') { _lastSweepError = 'HTTP timeout'; notifyPush('sweep-error', { error: 'HTTP timeout' }); }
+  });
   req.write(payload);
   req.end();
 }
