@@ -11,6 +11,7 @@
  */
 
 const WebSocket = require('ws');
+const http = require('http');
 const { optIn, optOut, normalizeName, validateName, discover, resolveApp, pods, getAppPods, assignPod, unassignPod, renameApp, loadRegistry } = require('./index');
 const asar = require('./lib/asar');
 
@@ -20,8 +21,12 @@ const PLUGIN_URL_BASE = (process.env.PODBAY_PLUGIN_URL_BASE || 'http://localhost
 const CLIENT_ID = 'podbay';
 const RECONNECT_MS = 3000;
 const MAX_RECONNECT_MS = 30000;
+const SWEEP_DELAY_MS = 2000; // delay before initial sweep after registration
+const POLL_INTERVAL_MS = 5000; // poll broker for new clients
 
 let activeWs = null;  // current WebSocket, set on connect
+const _pushedClients = new Set(); // track clients we've already pushed to
+let _pollTimer = null; // client poll timer
 
 function log(...args) { process.stderr.write(TAG + ' ' + args.join(' ') + '\n'); }
 
@@ -358,6 +363,122 @@ const tools = [
   },
 ];
 
+// ── Auto-push helpers ─────────────────────────────────────────────────────────
+
+/**
+ * Push pod plugins to a single client if it has assigned pods.
+ * @param {WebSocket} ws - active WS connection
+ * @param {string} clientId - target client
+ */
+function pushToClient(ws, clientId) {
+  if (!clientId || clientId === CLIENT_ID) return; // ignore self
+  const appPods = getAppPods(clientId);
+  if (!appPods.length) return;
+
+  log('Pushing', appPods.length, 'pod(s) to', clientId + '...');
+  const injectTool = tools.find(t => t.name === 'inject');
+  const bundle = injectTool.handler({ clientId });
+  if (!bundle || !bundle.code) {
+    log('No injectable code for', clientId);
+    return;
+  }
+
+  ws.send(JSON.stringify({
+    type: 'call_tool',
+    callId: 'auto-push-' + Date.now(),
+    tool: clientId + '__execute_plugin',
+    arguments: { code: bundle.code },
+  }));
+  log('Pushed', bundle.plugins, 'plugins to', clientId, '(' + bundle.codeLength + ' chars)');
+}
+
+/**
+ * After RC registers, query the broker via HTTP for existing clients and push
+ * to any that have assigned pods. Also starts periodic polling for new clients.
+ */
+function sweepExistingClients(ws) {
+  if (!ws || ws.readyState !== 1) return;
+  log('Sweeping for existing bootstrap clients...');
+  fetchBrokerClients(ws);
+  // Start periodic polling for new clients
+  startClientPoll(ws);
+}
+
+/**
+ * Fetch client list via HTTP and push plugins to any with assigned pods.
+ */
+function fetchBrokerClients(ws) {
+  if (!ws || ws.readyState !== 1) return;
+
+  const brokerHttpPort = process.env.PODBAY_BROKER_HTTP_PORT || '3098';
+  const brokerHttpHost = process.env.PODBAY_BROKER_HTTP_HOST || 'host.docker.internal';
+
+  const payload = JSON.stringify({
+    jsonrpc: '2.0',
+    method: 'tools/call',
+    params: { name: 'list_broker_clients', arguments: {} },
+    id: 1,
+  });
+
+  const req = http.request({
+    hostname: brokerHttpHost,
+    port: parseInt(brokerHttpPort, 10),
+    path: '/mcp',
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json, text/event-stream',
+      'Content-Length': Buffer.byteLength(payload),
+    },
+    timeout: 5000,
+  }, (res) => {
+    let data = '';
+    res.on('data', (chunk) => { data += chunk; });
+    res.on('end', () => {
+      try {
+        // SSE format: "event: message\ndata: {...}\n\n"
+        const jsonStr = data.includes('data: ') ? data.split('data: ').pop().trim() : data.trim();
+        const parsed = JSON.parse(jsonStr);
+        const content = parsed.result && parsed.result.content && parsed.result.content[0] && parsed.result.content[0].text;
+        const clients = JSON.parse(content);
+        let pushed = 0;
+        for (const c of clients) {
+          if (c.clientId === CLIENT_ID) continue;
+          if (_pushedClients.has(c.clientId)) continue;
+          if (getAppPods(c.clientId).length > 0) {
+            pushToClient(ws, c.clientId);
+            _pushedClients.add(c.clientId);
+            pushed++;
+          }
+        }
+        if (pushed > 0) log('Sweep complete:', pushed, 'client(s) received plugins');
+      } catch (e) {
+        log('Sweep parse error:', e.message);
+      }
+    });
+  });
+
+  req.on('error', (e) => { log('Sweep HTTP error:', e.message); });
+  req.on('timeout', () => { req.destroy(); log('Sweep HTTP timeout'); });
+  req.write(payload);
+  req.end();
+}
+
+/**
+ * Poll broker periodically for new clients that need plugin injection.
+ */
+function startClientPoll(ws) {
+  if (_pollTimer) clearInterval(_pollTimer);
+  _pollTimer = setInterval(() => {
+    if (!ws || ws.readyState !== 1) {
+      clearInterval(_pollTimer);
+      _pollTimer = null;
+      return;
+    }
+    fetchBrokerClients(ws);
+  }, POLL_INTERVAL_MS);
+}
+
 // ── Minimal reverse-client protocol ──────────────────────────────────────────
 
 function connect(url) {
@@ -384,36 +505,9 @@ function connect(url) {
 
       if (msg.type === 'registered') {
         log('Registered as', msg.clientId, 'with', tools.length, 'tools');
-        return;
-      }
-
-      // ── Auto-push: when a bootstrap client connects, push its plugins ──
-      if (msg.type === 'client_connected') {
-        const clientId = msg.clientId;
-        if (!clientId || clientId === CLIENT_ID) return; // ignore self
-        // Check if this client has assigned pods
-        const appPods = getAppPods(clientId);
-        if (!appPods.length) {
-          log('New client:', clientId, '— no pods assigned, skipping push');
-          return;
-        }
-        log('New client:', clientId, '— pushing', appPods.length, 'pod(s)...');
-        // Build the injection bundle using the existing inject handler
-        const injectTool = tools.find(t => t.name === 'inject');
-        const bundle = injectTool.handler({ clientId });
-        if (!bundle || !bundle.code) {
-          log('No injectable code for', clientId);
-          return;
-        }
-        // Push via the broker by calling {clientId}__execute_plugin
-        const callId = 'auto-push-' + Date.now();
-        ws.send(JSON.stringify({
-          type: 'call_tool',
-          callId,
-          tool: clientId + '__execute_plugin',
-          arguments: { code: bundle.code },
-        }));
-        log('Pushed', bundle.plugins, 'plugins to', clientId, '(' + bundle.codeLength + ' chars)');
+        // Sweep: after a short delay, check for existing bootstrap clients
+        // that connected before us and push their plugins
+        setTimeout(() => sweepExistingClients(ws), SWEEP_DELAY_MS);
         return;
       }
 
