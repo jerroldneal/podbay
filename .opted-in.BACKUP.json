@@ -1,0 +1,12 @@
+{
+  "clubwpt-desktop": {
+    "asarPath": "/host/programs/clubwpt-desktop/resources/app.asar",
+    "pods": [
+      "console.pod",
+      "cwg-action.pod",
+      "card-capture.pod",
+      "cwg-plugin-library.pod",
+      "test-pod.pod"
+    ]
+  }
+}

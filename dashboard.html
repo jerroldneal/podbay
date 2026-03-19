@@ -572,6 +572,7 @@
   let busyProgress = 0;     // current step number
   let busyTotal = 0;        // total steps
   let busyStep = '';        // current step label
+  let busySteps = [];       // array of {step: number, message: string, completed: boolean}
   let expandedPodsApp = null; // legacy — kept for reference but unused
 
   // ── Toast notifications ────────────────────────────────────────────
@@ -632,6 +633,21 @@
 
   async function callTool(name, args) {
     const result = await mcpCall('tools/call', { name, arguments: args || {} });
+    // Check for MCP error response (isError: true in result)
+    if (result && result.isError) {
+      // Extract error message from content
+      let errorMsg = 'Unknown error';
+      if (result.content && Array.isArray(result.content)) {
+        for (const c of result.content) {
+          if (c.type === 'text' && c.text) {
+            // Remove "Error: " prefix if present
+            errorMsg = c.text.replace(/^Error:\s*/i, '');
+            break;
+          }
+        }
+      }
+      throw new Error(errorMsg);
+    }
     if (result && result.content) {
       for (const c of result.content) {
         if (c.type === 'text') {
@@ -677,6 +693,16 @@
             busyProgress = p.progress || 0;
             busyTotal = p.total || 0;
             busyStep = p.message || '';
+            // Track step in checklist
+            if (busyProgress > 0 && busyStep) {
+              const existing = busySteps.find(s => s.step === busyProgress);
+              if (existing) {
+                existing.message = busyStep;
+                existing.completed = true;
+              } else {
+                busySteps.push({ step: busyProgress, message: busyStep, completed: busyProgress <= (p.progress || 0) });
+              }
+            }
             if (currentSection === 'apps') renderSection();
           }
           notifData.unshift({
@@ -994,6 +1020,8 @@
   let drawerActiveTab = 'app'; // 'app' | 'optin' | 'pods'
   let drawerPendingRename = null; // pending rename value (null = no change)
   let drawerPendingPods = null;   // pending pod list (null = no change)
+  let drawerPendingOptIn = false;  // user clicked opt-in, pending name entry + OK confirmation
+  let drawerOptInName = '';        // name typed in the in-drawer input
 
   function markDrawerDirty() {
     drawerDirty = true;
@@ -1164,9 +1192,28 @@
           ${isBusy ? `
           <div class="drawer-section">
             <div class="drawer-section-title">Progress</div>
-            <div class="opt-status-msg"><span class="spinner"></span>${busyLabel}${busyStep ? ' <span class="step-label">— ' + busyStep + ' (' + busyProgress + '/' + busyTotal + ')</span>' : ''}</div>
+            <div class="opt-status-msg"><span class="spinner"></span>${busyLabel}</div>
+            <div style="margin-top:12px;">
+              ${busySteps.length > 0 ? busySteps.sort((a,b) => a.step - b.step).map(s => `
+                <div style="display:flex;gap:8px;align-items:center;padding:6px 0;">
+                  <span style="font-size:14px;color:${s.completed ? 'var(--success)' : 'var(--text-muted)'}">${s.completed ? '✓' : '○'}</span>
+                  <span style="color:${s.completed ? 'var(--text-primary)' : 'var(--text-muted)'};font-size:12px;">${esc(s.message)}</span>
+                </div>
+              `).join('') : '<div style="color:var(--text-muted);font-size:12px;">Starting...</div>'}
+            </div>
             <div style="margin-top:6px;background:var(--bg-base);border-radius:4px;height:6px;overflow:hidden;">
               <div style="width:${busyTotal ? (busyProgress / busyTotal * 100) : 0}%;height:100%;background:var(--accent);border-radius:4px;transition:width .4s ease;"></div>
+            </div>
+          </div>
+          ` : drawerPendingOptIn ? `
+          <div class="drawer-section">
+            <div class="drawer-section-title">Choose App Name</div>
+            <div class="panel-field">
+              <div class="panel-label">Name (lowercase, hyphens only)</div>
+              <input id="drawerOptInNameInput" type="text" value="${esc(drawerOptInName)}"
+                oninput="drawerOptInName=this.value"
+                style="width:100%;margin-top:6px;padding:8px;background:var(--bg-base);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text-primary);font-size:12px;font-family:'Cascadia Code','Fira Code','Consolas',monospace;outline:none;box-sizing:border-box;">
+              <div style="font-size:9px;color:var(--text-muted);margin-top:4px;">Click <strong>OK</strong> to confirm opt-in, or <strong>Cancel</strong> to discard.</div>
             </div>
           </div>
           ` : `
@@ -1254,11 +1301,35 @@
     renderDrawerTab();
   };
 
-  // Opt-in/out from drawer (immediate actions, not deferred)
+  // Opt-in from drawer — deferred: shows name input in-drawer, executes on OK
   window.drawerOptIn = function() {
-    if (!drawerAppName) return;
-    portalOpen(drawerAppName);
-    closeDrawer();
+  const app = appData.find(a => a.name === drawerAppName);
+  if (!app) alert('app is null');
+  
+  
+	const defaultName = app.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'app';
+	drawerOptInName = app.registeredName || defaultName;
+	drawerPendingOptIn = true;
+  
+  showToast("drawerAppName: " + drawerAppName);
+  showToast("defaultName: " + defaultName);
+  showToast("app.registeredName: " + app.registeredName);
+  
+  
+    drawerPendingOptIn = true;
+    markDrawerDirty();
+    renderDrawerTab();
+
+    // Focus the input after render
+    setTimeout(() => {
+      const input = document.getElementById('drawerOptInNameInput');
+      if (input) { input.focus(); input.select(); }
+    }, 50);
+	
+  return
+    // if (!drawerAppName) return;
+    // portalOpen(drawerAppName);
+    // closeDrawer();
   };
 
   window.drawerOptOut = function() {
@@ -1268,14 +1339,65 @@
   };
 
   function recheckDirty() {
-    drawerDirty = drawerPendingRename !== null || drawerPendingPods !== null;
+    drawerDirty = drawerPendingRename !== null || drawerPendingPods !== null || drawerPendingOptIn;
     updateDrawerFooter();
   }
 
+	function sleep(ms) {
+	  return new Promise(resolve => setTimeout(resolve, ms));
+	}
+	
   // ── Drawer OK / Cancel / Close ─────────────────────────────────────
 
   window.drawerOkClick = async function() {
     const app = appData.find(a => a.name === drawerAppName);
+    const inputEl = document.getElementById('drawerOptInNameInput');
+    if (drawerPendingOptIn) {
+      const name = (inputEl ? inputEl.value : drawerOptInName).trim();
+      if (!name) { showToast('✗ Name cannot be blank', 'error'); return; }
+	  showToast('Name: '+ name);
+	
+
+      busyApp = app.name;
+      busyAction = 'opt-in';
+      busyProgress = 0; busyTotal = 0; busyStep = '';
+      busySteps = [];
+      renderDrawerTab(); // Show busy spinner
+	  
+	  
+	  
+	  
+	  try {
+        // await callTool('podbay__opt_in', { app: app.name, name });
+        
+		showToast('✓ ' + app.name + ' opted-in as ' + name, 'success');
+        
+		// On SUCCESS: Reset drawer state and close it
+        drawerPendingOptIn = false;
+        drawerOptInName = '';
+        drawerDirty = false;
+        // closeDrawer();
+      } catch (e) {
+        showToast('✗ Opt-in failed: ' + e.message, 'error');
+        // On FAILURE: Leave drawer open so user can retry
+      } finally {
+        // ALWAYS: Clear busy state first
+        busyApp = null;
+        busyAction = null;
+        busyProgress = 0;
+        busyTotal = 0;
+        busyStep = '';
+        busySteps = [];
+        renderDrawerTab();     // Re-render drawer tab (noop if drawer closed)
+      }
+	  
+	  await sleep(5000);
+	  
+	  alert('test');
+	  
+	  
+	return;
+}
     if (!app) { closeDrawer(); return; }
     const regName = app.registeredName || '';
 
@@ -1378,6 +1500,7 @@
     busyApp = appName;
     busyAction = 'opt-in';
     busyProgress = 0; busyTotal = 0; busyStep = '';
+    busySteps = [];
     renderSection();
     try {
       await callTool('podbay__opt_in', { app: appName, name: name.trim() });
@@ -1389,6 +1512,7 @@
       busyApp = null;
       busyAction = null;
       busyProgress = 0; busyTotal = 0; busyStep = '';
+      busySteps = [];
       renderSection();
     }
   };
@@ -1398,6 +1522,7 @@
     busyApp = appName;
     busyAction = 'opt-out';
     busyProgress = 0; busyTotal = 0; busyStep = '';
+    busySteps = [];
     renderSection();
     try {
       await callTool('podbay__opt_out', { app: appName });
@@ -1409,6 +1534,7 @@
       busyApp = null;
       busyAction = null;
       busyProgress = 0; busyTotal = 0; busyStep = '';
+      busySteps = [];
       renderSection();
     }
   };
