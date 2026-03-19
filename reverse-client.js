@@ -61,14 +61,14 @@ const tools = [
           asarPath: a.asarPath,
           status: asar.status(a.asarPath),
           registeredName: entry ? entry[0] : null,
-          pods: entry ? (entry[1].pods || []) : [],
+          pods: entry ? getAppPods(entry[0]) : [],
         };
       });
     },
   },
   {
     name: 'opt_in',
-    description: 'Opt-in an Electron app — inject system plugin for broker-driven injection. Name defaults to normalized app directory name.',
+    description: 'Opt-in an Electron app — inject bootstrap for broker-driven plugin delivery. Name defaults to normalized app directory name.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -127,7 +127,7 @@ const tools = [
         asarPath: app.asarPath,
         status: asar.status(app.asarPath),
         registeredName: entry ? entry[0] : null,
-        pods: entry ? (entry[1].pods || []) : [],
+        pods: entry ? getAppPods(entry[0]) : [],
       };
     },
   },
@@ -150,7 +150,7 @@ const tools = [
   // ── Injection tool (system plugin calls this) ────────────────────────
   {
     name: 'inject',
-    description: 'Return combined injection bundle for an opted-in target. Called by system plugin on startup.',
+    description: 'Return combined injection bundle for an opted-in target. Called automatically when a bootstrap client connects, or manually for re-injection.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -384,6 +384,36 @@ function connect(url) {
 
       if (msg.type === 'registered') {
         log('Registered as', msg.clientId, 'with', tools.length, 'tools');
+        return;
+      }
+
+      // ── Auto-push: when a bootstrap client connects, push its plugins ──
+      if (msg.type === 'client_connected') {
+        const clientId = msg.clientId;
+        if (!clientId || clientId === CLIENT_ID) return; // ignore self
+        // Check if this client has assigned pods
+        const appPods = getAppPods(clientId);
+        if (!appPods.length) {
+          log('New client:', clientId, '— no pods assigned, skipping push');
+          return;
+        }
+        log('New client:', clientId, '— pushing', appPods.length, 'pod(s)...');
+        // Build the injection bundle using the existing inject handler
+        const injectTool = tools.find(t => t.name === 'inject');
+        const bundle = injectTool.handler({ clientId });
+        if (!bundle || !bundle.code) {
+          log('No injectable code for', clientId);
+          return;
+        }
+        // Push via the broker by calling {clientId}__execute_plugin
+        const callId = 'auto-push-' + Date.now();
+        ws.send(JSON.stringify({
+          type: 'call_tool',
+          callId,
+          tool: clientId + '__execute_plugin',
+          arguments: { code: bundle.code },
+        }));
+        log('Pushed', bundle.plugins, 'plugins to', clientId, '(' + bundle.codeLength + ' chars)');
         return;
       }
 
