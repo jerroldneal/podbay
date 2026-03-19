@@ -80,13 +80,17 @@ const tools = [
       const reg = loadRegistry();
       return apps.map((a, i) => {
         const entry = Object.entries(reg).find(([, v]) => v.asarPath === a.asarPath);
+        const regName = entry ? entry[0] : null;
+        // Check pods by registered name, then by directory name (pod assignment is independent of opt-in)
+        const appPods = getAppPods(regName) || [];
+        const dirPods = regName ? [] : (getAppPods(normalizeName(a.name)) || []);
         return {
           index: i + 1,
           name: a.name,
           asarPath: a.asarPath,
           status: asar.status(a.asarPath),
-          registeredName: entry ? entry[0] : null,
-          pods: entry ? getAppPods(entry[0]) : [],
+          registeredName: regName,
+          pods: appPods.length ? appPods : dirPods,
         };
       });
     },
@@ -147,12 +151,15 @@ const tools = [
       if (!app) return { error: 'App not found: ' + nameOrIndex };
       const reg = loadRegistry();
       const entry = Object.entries(reg).find(([, v]) => v.asarPath === app.asarPath);
+      const regName = entry ? entry[0] : null;
+      const appPods = getAppPods(regName) || [];
+      const dirPods = regName ? [] : (getAppPods(normalizeName(app.name)) || []);
       return {
         name: app.name,
         asarPath: app.asarPath,
         status: asar.status(app.asarPath),
-        registeredName: entry ? entry[0] : null,
-        pods: entry ? getAppPods(entry[0]) : [],
+        registeredName: regName,
+        pods: appPods.length ? appPods : dirPods,
       };
     },
   },
@@ -329,11 +336,11 @@ const tools = [
   // ── Pod-to-app assignment tools ──────────────────────────────────────
   {
     name: 'pods_assign',
-    description: 'Assign a .pod file to an opted-in app',
+    description: 'Assign a .pod file to an app by name',
     inputSchema: {
       type: 'object',
       properties: {
-        name: { type: 'string', description: 'Registered app name (e.g. "cwg")' },
+        name: { type: 'string', description: 'App name (e.g. "clubwpt-desktop")' },
         pod: { type: 'string', description: 'Pod filename (e.g. "cwg-debug.pod")' },
       },
       required: ['name', 'pod'],
@@ -350,11 +357,11 @@ const tools = [
   },
   {
     name: 'pods_unassign',
-    description: 'Unassign a .pod file from an opted-in app',
+    description: 'Unassign a .pod file from an app',
     inputSchema: {
       type: 'object',
       properties: {
-        name: { type: 'string', description: 'Registered app name (e.g. "cwg")' },
+        name: { type: 'string', description: 'App name (e.g. "clubwpt-desktop")' },
         pod: { type: 'string', description: 'Pod filename to unassign' },
       },
       required: ['name', 'pod'],
@@ -370,10 +377,10 @@ const tools = [
   },
   {
     name: 'pods_app',
-    description: 'List pods assigned to a specific opted-in app',
+    description: 'List pods assigned to a specific app',
     inputSchema: {
       type: 'object',
-      properties: { name: { type: 'string', description: 'Registered app name' } },
+      properties: { name: { type: 'string', description: 'App name' } },
       required: ['name'],
     },
     handler: ({ name }) => {

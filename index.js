@@ -96,14 +96,10 @@ function getAppPods(name) {
 }
 
 function assignPod(name, podFile) {
-  const reg = loadRegistry();
-  if (!reg[name]) throw new Error(`App "${name}" is not opted-in`);
   pods.assignPod(name, podFile);
 }
 
 function unassignPod(name, podFile) {
-  const reg = loadRegistry();
-  if (!reg[name]) throw new Error(`App "${name}" is not opted-in`);
   pods.unassignPod(name, podFile);
 }
 
