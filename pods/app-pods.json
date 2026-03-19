@@ -1,3 +1,5 @@
 {
-  "clubwpt-desktop": ["test-pod.pod"]
+  "clubwpt-desktop": [
+    "example.pod"
+  ]
 }
