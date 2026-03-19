@@ -1,9 +1,9 @@
 # PodBay Architecture
 
-> **Version**: 2.0.0
-> **Last Updated**: 2026-03-13
+> **Version**: 3.0.0
+> **Last Updated**: 2026-03-19
 
-PodBay is a runtime injection framework for Electron applications. It patches Electron's ASAR bundles to inject a system plugin into every renderer window, connects those windows to an MCP broker, and delivers composable plugin bundles ("pods") on demand. The entire system runs as Docker containers communicating over WebSocket and HTTP.
+PodBay is a runtime injection framework for Electron applications. It patches Electron's ASAR bundles to inject a minimal **bootstrap** into every renderer window, connects those windows to an MCP broker, and delivers composable plugin bundles ("pods") on demand via the `execute_plugin` tool. The entire system runs as Docker containers communicating over WebSocket and HTTP.
 
 ---
 
@@ -37,17 +37,14 @@ graph TB
     end
 
     subgraph ElectronWindows["Electron Renderer Windows"]
-        SP["System Plugin<br/>(injected via ASAR patch)"]
-        Plugins["Plugin Bundle<br/>(broker-client, bridge,<br/>hook, identity, etc.)"]
+        BS["Bootstrap<br/>(injected via ASAR patch)"]
+        Plugins["Plugin Bundle<br/>(pushed via execute_plugin)"]
     end
 
     RC -- "WS register<br/>tools: list, opt_in,<br/>inject, pods_*" --> Broker
-    SP -- "WS register<br/>tools: execute_plugin,<br/>plugin" --> Broker
-    SP -- "HTTP POST /mcp<br/>call podbay__inject" --> Broker
-    Broker -- "route tool_call<br/>to podbay RC" --> RC
-    RC -- "returns bundle code" --> Broker
-    Broker -- "SSE response" --> SP
-    SP -- "eval(bundle)" --> Plugins
+    BS -- "WS register<br/>tool: execute_plugin" --> Broker
+    Broker -- "tool_call: execute_plugin<br/>(push stage-2 + plugins)" --> BS
+    BS -- "eval(code)" --> Plugins
     Plugins -- "WS register<br/>per-plugin tools" --> Broker
     Dashboard -- "serves HTML/JS" --> Host
 ```
@@ -58,7 +55,9 @@ graph TB
 
 ### 1. Opt-In / Opt-Out Model
 
-PodBay never modifies applications without consent. An explicit **opt-in** step patches the Electron app's ASAR archive. **Opt-out** restores the original backup.
+PodBay never modifies applications without consent. An explicit **opt-in** step patches the Electron app's ASAR archive with a minimal bootstrap. **Opt-out** restores the original backup.
+
+Opt-in state is tracked in `.opted-in.json` (name → ASAR path only). Pod assignments are tracked separately in `pods/app-pods.json`.
 
 ```mermaid
 stateDiagram-v2
@@ -76,7 +75,7 @@ stateDiagram-v2
 | State | Meaning |
 |-------|---------|
 | Closed | Original app, no PodBay involvement |
-| Open | ASAR patched, system plugin injected on every window load |
+| Open | ASAR patched, bootstrap injected on every window load |
 
 ### 2. Reverse Client Pattern
 
@@ -96,9 +95,16 @@ broker-client-sdk → bridge → hook → identity → [domain plugins] → cons
 
 Each layer builds on the previous one's `window.*` exports.
 
-### 5. Universal Window Injection
+### 5. Minimal Bootstrap Injection
 
-The system plugin is injected into **every renderer window** of an opted-in Electron app — lobby, table, popup, settings. Pod plugins use guards (e.g., `windowType === '1'`) to self-select which windows they activate in.
+The bootstrap (`lib/bootstrap.js`, ~95 lines) is the only code injected into the ASAR. Its sole responsibility is:
+1. Derive a stable `clientId`
+2. Connect to the broker via WebSocket
+3. Register a single tool: `execute_plugin`
+4. Handle incoming `tool_call` messages (eval arbitrary JS)
+5. Reconnect on disconnect
+
+All other capabilities (plugin registry, tool publishing, status reporting, pod loading) are **pushed** by the broker via `execute_plugin` after the bootstrap connects. This minimizes the ASAR patch surface and makes the injected code trivially simple.
 
 ---
 
@@ -115,9 +121,9 @@ graph LR
     end
 
     subgraph ClientSide["Client-Side (Browser Plugins)"]
-        sp["lib/system-plugin.js<br/>Bootstrap Injector"]
-        pp["lib/portal-payload.js<br/>Legacy Portal (v1)"]
-        bc["lib/broker-client.js<br/>Broker Client SDK"]
+        bs["lib/bootstrap.js<br/>Minimal Bootstrap"]
+        sp["lib/system-plugin.js<br/>Legacy (reference)"]
+        bc["lib/broker-client.js<br/>Broker Client SDK"]]
         bridge["lib/bridge.js<br/>Bridge Factory"]
         hook["lib/hook.js<br/>Method Interceptor"]
         identity["lib/identity.js<br/>Window Identity"]
@@ -141,17 +147,18 @@ graph LR
 
 | Module | File | Purpose |
 |--------|------|---------|
-| **Core API** | `index.js` | CLI interface, opt-in/opt-out, registry management, pod assignment |
+| **Core API** | `index.js` | CLI interface, opt-in/opt-out, registry management |
 | **Reverse Client** | `reverse-client.js` | Long-lived process that publishes 13 MCP tools to the broker |
 | **App Discovery** | `lib/discover.js` | Scans filesystem for Electron apps containing `app.asar` |
 | **ASAR Manipulation** | `lib/asar.js` | Backup, extract, patch WindowManager.js, repack |
-| **Pod Loader** | `lib/pods.js` | Parse `.pod` files, resolve plugin code from `file`, `require`, or inline `code` |
+| **Pod Loader** | `lib/pods.js` | Parse `.pod` files, resolve plugin code, manage `app-pods.json` |
 
 ### Client-Side Modules (Injected Plugins)
 
 | Module | File | Window Global | Purpose |
 |--------|------|---------------|---------|
-| **System Plugin** | `lib/system-plugin.js` | `window.__podBayInstalled` | Bootstrap — connects to broker, requests injection bundle |
+| **Bootstrap** | `lib/bootstrap.js` | `window.__podBayInstalled` | Minimal payload — connects to broker, exposes `execute_plugin` |
+| **System Plugin** | `lib/system-plugin.js` | *(legacy, reference only)* | Former full-featured bootstrap — preserved for reference |
 | **Broker Client SDK** | `lib/broker-client.js` | `window.PodBayBrokerClient` | Reusable WS client class with tool publishing & notification API |
 | **Bridge Factory** | `lib/bridge.js` | `window.PodBayBridge(id)` | High-level bridge factory — `addTool()`, `connect()`, `notify()` |
 | **Hook** | `lib/hook.js` | `window.PodBayHook(target, methods, cb)` | Generalized method interception on any object |
@@ -168,43 +175,40 @@ graph LR
 sequenceDiagram
     participant App as Electron App
     participant WM as WindowManager.js<br/>(patched)
-    participant SP as System Plugin
+    participant BS as Bootstrap
     participant Broker as MCP Broker
     participant RC as PodBay RC<br/>(Docker)
 
     Note over App: App launches (opted-in ASAR)
     App->>WM: createWindow()
     WM->>WM: window.loadURL(url)
-    WM->>SP: did-finish-load → executeJavaScript(system-plugin)
+    WM->>BS: did-finish-load → executeJavaScript(bootstrap)
 
-    SP->>Broker: WS register(clientId, tools)
-    Broker-->>SP: registered ✓
+    BS->>Broker: WS register(clientId, [execute_plugin])
+    Broker-->>BS: registered ✓
 
-    SP->>Broker: HTTP POST /mcp<br/>call_tool: podbay__inject<br/>{clientId, url, title, userAgent}
-    Broker->>RC: tool_call: inject
-
-    RC->>RC: Look up assigned pods<br/>for clientId
+    Note over Broker,RC: Broker detects new bootstrap client
+    Broker->>RC: notify: new client registered
+    RC->>RC: Look up assigned pods<br/>in pods/app-pods.json
     RC->>RC: Resolve plugin code<br/>from .pod files
-    RC-->>Broker: SSE response:<br/>bundled code
+    RC->>Broker: tool_call: {clientId}__execute_plugin<br/>(stage-2 + plugin bundle)
+    Broker->>BS: tool_call: execute_plugin(code)
+    BS->>BS: eval(code)
 
-    Broker-->>SP: SSE data:<br/>{code, plugins: N}
-    SP->>SP: eval(bundle)
+    Note over BS: Plugins initialize in order:<br/>1. broker-client-sdk<br/>2. bridge<br/>3. hook<br/>4. identity<br/>5. domain plugins<br/>6. console-bridge
 
-    Note over SP: Plugins initialize in order:<br/>1. broker-client-sdk<br/>2. bridge<br/>3. hook<br/>4. identity<br/>5. domain plugins<br/>6. console-bridge
-
-    SP->>Broker: WS update_tools<br/>(plugin-registered tools)
+    BS->>Broker: WS update_tools<br/>(plugin-registered tools)
 ```
 
 ### Step-by-Step
 
-1. **App Launch**: Electron loads the patched ASAR containing `podbay-portal.js` (the system plugin)
-2. **Window Creation**: `WindowManager.js` fires the patch on `did-finish-load`, injecting the system plugin via `executeJavaScript()`
-3. **Broker Registration**: System plugin connects to broker WS (`:3099`), registers `execute_plugin` and `plugin` tools
-4. **Injection Request**: System plugin sends an HTTP POST to broker (`:3098/mcp`) calling `podbay__inject` with window metadata
-5. **Bundle Assembly**: PodBay reverse client looks up assigned pods, resolves all plugin code, concatenates into a single bundle
-6. **Bundle Evaluation**: System plugin receives the bundle via SSE and evaluates it with `eval()`
-7. **Plugin Initialization**: Each plugin IIFE runs in declaration order, installing its `window.*` export
-8. **Tool Publishing**: Plugins that register broker tools trigger a `update_tools` message with the expanded tool list
+1. **App Launch**: Electron loads the patched ASAR containing the bootstrap (`podbay-portal.js`)
+2. **Window Creation**: `WindowManager.js` fires the patch on `did-finish-load`, injecting the bootstrap via `executeJavaScript()`
+3. **Broker Registration**: Bootstrap connects to broker WS (`:3099`), registers only `execute_plugin`
+4. **Plugin Push**: PodBay reverse client detects the new client, looks up its pods in `pods/app-pods.json`, resolves plugin code, and pushes the bundle via `execute_plugin`
+5. **Bundle Evaluation**: Bootstrap evaluates the pushed code with `new Function(code)()`
+6. **Plugin Initialization**: Each plugin IIFE runs in declaration order, installing its `window.*` export
+7. **Tool Publishing**: Plugins that register broker tools trigger an `update_tools` message with the expanded tool list
 
 ---
 
@@ -260,23 +264,29 @@ Three plugin code sources (checked in priority order):
 
 ```mermaid
 flowchart LR
-    Registry[".opted-in.json"] --> AppEntry["app-name:<br/>{asarPath, pods[]}"]
-    AppEntry --> Pod1["console.pod"]
-    AppEntry --> Pod2["cwg-debug.pod"]
+    Registry[".opted-in.json"] --> AppEntry["app-name:<br/>{asarPath}"]
+    AppPods["pods/app-pods.json"] --> Mapping["app-name:<br/>[pod1, pod2]"]
 
-    InjectRequest["inject(clientId)"] --> Lookup["getAppPods(clientId)"]
+    InjectRequest["inject(clientId)"] --> Lookup["pods.getAppPods(clientId)"]
     Lookup --> Resolve["getPluginCodeForPods(pods)"]
     Resolve --> Bundle["Combined JavaScript Bundle"]
 ```
 
-The `.opted-in.json` registry maps app names to their ASAR paths and assigned pod lists:
+Opt-in state and pod assignments are **separated concerns**:
 
+`.opted-in.json` — only tracks whether an app is bootstrapped:
 ```json
 {
-  "clubwpt-gold": {
-    "asarPath": "/host/programs/ClubWPT Gold/resources/app.asar",
-    "pods": ["console.pod", "cwg-debug.pod"]
+  "clubwpt-desktop": {
+    "asarPath": "C:\\Users\\...\\clubwpt-desktop\\resources\\app.asar"
   }
+}
+```
+
+`pods/app-pods.json` — maps app names to their assigned pods:
+```json
+{
+  "clubwpt-desktop": ["console.pod", "cwg-debug.pod"]
 }
 ```
 
@@ -295,16 +305,15 @@ flowchart TB
 
     subgraph Clients["Broker Clients"]
         PodBayRC["podbay (RC)<br/>13 tools"]
-        SysPlugin["cwg-lobby, cwg-table-*<br/>execute_plugin, plugin,<br/>+ dynamic tools"]
+        Bootstrap["cwg-lobby, cwg-table-*<br/>execute_plugin<br/>+ dynamic tools (pushed)"]
         ConsoleBridge["cwg-lobby (bridge)<br/>eval, get_console,<br/>run_console"]
         External["AI Agents,<br/>Dashboards"]
     end
 
     PodBayRC -- "register" --> WS
-    SysPlugin -- "register" --> WS
+    Bootstrap -- "register" --> WS
     ConsoleBridge -- "register" --> WS
     External -- "call_tool" --> HTTP
-    SysPlugin -- "inject request" --> HTTP
 ```
 
 ### WebSocket Message Types
@@ -576,7 +585,7 @@ flowchart TB
 | Tool | Description |
 |------|-------------|
 | `list` | Discover installed Electron apps with portal status |
-| `opt_in` | Inject system plugin via ASAR patch |
+| `opt_in` | Inject bootstrap via ASAR patch |
 | `opt_out` | Restore original ASAR from backup |
 | `status` | Get portal status for an app |
 | `rename` | Rename an opted-in app |
@@ -590,16 +599,17 @@ flowchart TB
 | `pods_unassign` | Unassign a pod from an app |
 | `pods_app` | List pods assigned to an app |
 
-### System Plugin Tools (per window)
+### Bootstrap Tool (per window)
 
 | Tool | Description |
 |------|-------------|
 | `execute_plugin` | Execute arbitrary JavaScript in the renderer |
-| `plugin` | Get injection status and metadata |
+
+The bootstrap registers only `execute_plugin`. All additional tools (e.g., `plugin`, `eval`, `get_console`) are pushed by the broker via `execute_plugin` and registered dynamically by the injected plugins.
 
 ### Dynamic Plugin-Registered Tools (per window)
 
-Plugins can register additional tools at runtime via `window.__podBay.registerTool()` or through the Bridge API. These appear in the broker as `{clientId}__{toolName}`.
+Plugins can register additional tools at runtime via `window.PodBayBrokerClient.upsertTool()` or through the Bridge API. These appear in the broker as `{clientId}__{toolName}`.
 
 **Console Bridge** registers:
 - `eval` — Evaluate JavaScript in page context
@@ -629,7 +639,7 @@ flowchart TD
     end
 ```
 
-The patch adds a block between `// === PODBAY PATCH START ===` and `// === PODBAY PATCH END ===` markers in `WindowManager.js`. On every `did-finish-load` event, it reads the system plugin file and executes it in the renderer context, optionally prefixing a `__podbayName` variable for client identification.
+The patch adds a block between `// === PODBAY PATCH START ===` and `// === PODBAY PATCH END ===` markers in `WindowManager.js`. On every `did-finish-load` event, it reads the bootstrap file and executes it in the renderer context, optionally prefixing a `__podbayName` variable for client identification.
 
 ---
 
@@ -648,12 +658,12 @@ flowchart LR
 
     subgraph Launch["3. App Launch"]
         ASAR --> Electron["Electron loads<br/>patched ASAR"]
-        Electron --> SP["System Plugin<br/>injected per window"]
+        Electron --> BS["Bootstrap<br/>injected per window"]
     end
 
-    subgraph Inject["4. Injection"]
-        SP --> InjectReq["podbay__inject<br/>via HTTP MCP"]
-        InjectReq --> Bundle["Pod bundle<br/>assembled"]
+    subgraph Inject["4. Plugin Push"]
+        BS --> Push["Broker pushes plugins<br/>via execute_plugin"]
+        Push --> Bundle["Pod bundle<br/>assembled"]
         Bundle --> Eval["eval(bundle)<br/>plugins activate"]
     end
 

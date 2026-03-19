@@ -2,9 +2,15 @@
 
 > "Open the pod bay doors, HAL." — Unlike HAL, PodBay always opens the doors.
 
-Self-contained CLI that manages Electron app opt-in to the MCP broker and delivers plugins via `.pod` files. When opted-in with a **client name**, every renderer window registers on the broker using that name and exposes tools prefixed as `{name}.toolName` (e.g., `cwg.execute_plugin`).
+Self-contained CLI that manages Electron app opt-in to the MCP broker and delivers plugins via `.pod` files. When opted-in with a **client name**, every renderer window registers on the broker using that name and exposes an `execute_plugin` tool for remote code execution.
 
-**Pod-centric plugin management**: Plugins are defined exclusively in `.pod` files (JSON) in the `pods/` directory. Each opted-in app is assigned 0-n `.pod` files. When the app launches, PodBay bundles all plugins from the app's assigned pods into a single injection payload. Pod files are app-agnostic — the same `.pod` file can be shared across multiple apps.
+**Two-stage injection model**: Opt-in patches the app's ASAR with a minimal **bootstrap** (~95 lines) that only connects to the broker and exposes `execute_plugin`. Everything else — plugin loading, tool registration, status reporting — is pushed by the broker via `execute_plugin` after the bootstrap connects.
+
+**Separated concerns**:
+- `.opted-in.json` — tracks which apps are bootstrapped (name → ASAR path only)
+- `pods/app-pods.json` — maps app names to their assigned pod files
+
+Pod files are app-agnostic — the same `.pod` file can be shared across multiple apps.
 
 PodBay is **domain-agnostic** — it never embeds app-specific knowledge into client IDs or tool names. The caller chooses a name at opt-in time.
 
@@ -48,10 +54,10 @@ Plugin resolution: `code` (inline JS), `file` (read from disk), or `require` (No
 node podbay
 ```
 
-1. Lists installed Electron apps with portal status
+1. Lists installed Electron apps with bootstrap status
 2. Pick an app by number
 3. Choose an action:
-   - **1. Opt-In** — Inject system plugin (prompts for client name)
+   - **1. Opt-In** — Inject bootstrap (prompts for client name)
    - **2. Opt-Out** — Restore original ASAR
    - **3. Assign pods** — Toggle pod file assignments for the app
 
