@@ -351,6 +351,16 @@
     .push-msg .push-error { color:var(--danger); font-weight:500; }
     .push-msg .push-detail { color:var(--text-muted); font-size:10px; }
     .notif-msg { color:var(--text-secondary); flex:1; word-break:break-word; font-size:11px; }
+    .notif-summary { font-weight:500; color:var(--text-primary); }
+    .notif-detail { margin-top:4px; font-size:10px; color:var(--text-muted); font-family:'Consolas','Fira Code',monospace; background:var(--bg-base); padding:6px 8px; border-radius:var(--radius-sm); border:1px solid var(--border); max-height:200px; overflow:auto; white-space:pre-wrap; word-break:break-all; }
+    .notif-badge { display:inline-block; padding:1px 6px; border-radius:3px; font-size:9px; font-weight:600; text-transform:uppercase; letter-spacing:.3px; margin-right:4px; }
+    .notif-badge.nb-progress { background:var(--accent-dim); color:var(--accent); }
+    .notif-badge.nb-push { background:var(--success-dim); color:var(--success); }
+    .notif-badge.nb-error { background:var(--danger-dim); color:var(--danger); }
+    .notif-badge.nb-info { background:var(--purple-dim); color:var(--purple); }
+    .notif-badge.nb-client { background:var(--warning-dim); color:var(--warning); }
+    .notif-toggle { cursor:pointer; user-select:none; }
+    .notif-toggle:hover { color:var(--text-primary); }
 
     /* ── Window cards ── */
     .window-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); gap:8px; }
@@ -977,6 +987,39 @@
 
   // ── Notifications ──────────────────────────────────────────────────
 
+  function formatNotifData(d) {
+    if (!d || typeof d === 'string') return { badge: 'info', summary: d || '(empty)', detail: null };
+
+    // Push activity
+    if (d.category === 'push-activity') {
+      const ev = d.event || '';
+      const isFail = ev.includes('fail') || ev.includes('error');
+      const badge = isFail ? 'error' : 'push';
+      let summary = ev;
+      const parts = [];
+      if (d.clientId) parts.push('client: ' + d.clientId);
+      if (d.pods && d.pods.length) parts.push('pods: ' + d.pods.join(', '));
+      if (d.plugins) parts.push('plugins: ' + d.plugins);
+      if (d.codeLength) parts.push('size: ' + d.codeLength + ' chars');
+      if (d.error) parts.push('error: ' + d.error);
+      if (d.reason) parts.push('reason: ' + d.reason);
+      if (d.clientsFound !== undefined) parts.push('found: ' + d.clientsFound + ', pushed: ' + (d.clientsPushed || 0));
+      return { badge, summary, detail: parts.length ? parts.join('\n') : null };
+    }
+
+    // MCP progress
+    if (d.method === 'notifications/progress' && d.params) {
+      const p = d.params;
+      return { badge: 'progress', summary: (p.message || 'progress') + ' (' + (p.progress || 0) + '/' + (p.total || '?') + ')', detail: null };
+    }
+
+    // Generic object — show type/method as summary, rest as detail
+    const summary = d.type || d.method || d.event || d.message || Object.keys(d).slice(0, 3).join(', ');
+    const filtered = Object.entries(d).filter(([k]) => !['type','method','event','timestamp','category'].includes(k));
+    const detail = filtered.length ? filtered.map(([k,v]) => k + ': ' + (typeof v === 'object' ? JSON.stringify(v) : v)).join('\n') : null;
+    return { badge: 'info', summary, detail };
+  }
+
   function renderNotifications(area) {
     const notifs = notifData.filter(n =>
       matchSearch(n.clientId || '') || matchSearch(typeof n.data === 'string' ? n.data : JSON.stringify(n.data || ''))
@@ -989,13 +1032,21 @@
     }
 
     area.innerHTML = '<div class="section-box"><div class="section-box-header"><span>Recent Notifications</span></div>'
-      + notifs.slice(0, 100).map(n => {
+      + notifs.slice(0, 100).map((n, i) => {
         const time = n.timestamp ? new Date(n.timestamp).toLocaleTimeString() : '';
-        const msg = typeof n.data === 'string' ? n.data : JSON.stringify(n.data || n.message || '');
+        const fmt = formatNotifData(n.data);
+        const detailId = 'notif-detail-' + i;
         return `<div class="notif-item">
           <span class="notif-time">${esc(time)}</span>
           <span class="notif-client">${esc(n.clientId || '')}</span>
-          <span class="notif-msg">${esc(msg)}</span>
+          <div class="notif-msg">
+            <div>
+              <span class="notif-badge nb-${fmt.badge}">${esc(fmt.badge)}</span>
+              <span class="notif-summary">${esc(fmt.summary)}</span>
+              ${fmt.detail ? ` <span class="notif-toggle" onclick="var el=document.getElementById('${detailId}');el.style.display=el.style.display==='none'?'block':'none'">▸ detail</span>` : ''}
+            </div>
+            ${fmt.detail ? `<div class="notif-detail" id="${detailId}" style="display:none">${esc(fmt.detail)}</div>` : ''}
+          </div>
         </div>`;
       }).join('') + '</div>';
   }
@@ -1399,17 +1450,17 @@
   window.drawerOptIn = function() {
   const app = appData.find(a => a.name === drawerAppName);
   if (!app) alert('app is null');
-  
-  
+
+
 	const defaultName = app.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'app';
 	drawerOptInName = app.registeredName || defaultName;
 	drawerPendingOptIn = true;
-  
+
   showToast("drawerAppName: " + drawerAppName);
   showToast("defaultName: " + defaultName);
   showToast("app.registeredName: " + app.registeredName);
-  
-  
+
+
     drawerPendingOptIn = true;
     markDrawerDirty();
     renderDrawerTab();
@@ -1419,7 +1470,7 @@
       const input = document.getElementById('drawerOptInNameInput');
       if (input) { input.focus(); input.select(); }
     }, 50);
-	
+
   return
     // if (!drawerAppName) return;
     // portalOpen(drawerAppName);
@@ -1440,7 +1491,7 @@
 	function sleep(ms) {
 	  return new Promise(resolve => setTimeout(resolve, ms));
 	}
-	
+
   // ── Drawer OK / Cancel / Close ─────────────────────────────────────
 
   window.drawerOkClick = async function() {
@@ -1450,22 +1501,22 @@
       const name = (inputEl ? inputEl.value : drawerOptInName).trim();
       if (!name) { showToast('✗ Name cannot be blank', 'error'); return; }
 	  showToast('Name: '+ name);
-	
+
 
       busyApp = app.name;
       busyAction = 'opt-in';
       busyProgress = 0; busyTotal = 0; busyStep = '';
       busySteps = [];
       renderDrawerTab(); // Show busy spinner
-	  
-	  
-	  
-	  
+
+
+
+
 	  try {
         // await callTool('podbay__opt_in', { app: app.name, name });
-        
+
 		showToast('✓ ' + app.name + ' opted-in as ' + name, 'success');
-        
+
 		// On SUCCESS: Reset drawer state and close it
         drawerPendingOptIn = false;
         drawerOptInName = '';
@@ -1484,12 +1535,12 @@
         busySteps = [];
         renderDrawerTab();     // Re-render drawer tab (noop if drawer closed)
       }
-	  
+
 	  await sleep(5000);
-	  
+
 	  alert('test');
-	  
-	  
+
+
 	return;
 }
     if (!app) { closeDrawer(); return; }
