@@ -31,6 +31,25 @@ let _pollTimer = null; // client poll timer
 function log(...args) { process.stderr.write(TAG + ' ' + args.join(' ') + '\n'); }
 
 /**
+ * Send a push-activity notification through the broker WS.
+ * The dashboard picks these up and displays them in the Push Activity log.
+ * @param {'push-attempt'|'push-success'|'push-fail'|'push-skip'|'sweep-start'|'sweep-done'|'sweep-error'} event
+ * @param {object} detail
+ */
+function notifyPush(event, detail) {
+  if (!activeWs || activeWs.readyState !== 1) return;
+  activeWs.send(JSON.stringify({
+    type: 'notification',
+    data: {
+      category: 'push-activity',
+      event,
+      timestamp: Date.now(),
+      ...detail,
+    },
+  }));
+}
+
+/**
  * Send an MCP-standard notifications/progress message via WS.
  * @param {string} callId - The tool_call callId (used as progressToken)
  * @param {number} progress - Current step (1-based)
@@ -373,23 +392,35 @@ const tools = [
 function pushToClient(ws, clientId) {
   if (!clientId || clientId === CLIENT_ID) return; // ignore self
   const appPods = getAppPods(clientId);
-  if (!appPods.length) return;
-
-  log('Pushing', appPods.length, 'pod(s) to', clientId + '...');
-  const injectTool = tools.find(t => t.name === 'inject');
-  const bundle = injectTool.handler({ clientId });
-  if (!bundle || !bundle.code) {
-    log('No injectable code for', clientId);
+  if (!appPods.length) {
+    notifyPush('push-skip', { clientId, reason: 'No pods assigned' });
     return;
   }
 
-  ws.send(JSON.stringify({
-    type: 'call_tool',
-    callId: 'auto-push-' + Date.now(),
-    tool: clientId + '__execute_plugin',
-    arguments: { code: bundle.code },
-  }));
-  log('Pushed', bundle.plugins, 'plugins to', clientId, '(' + bundle.codeLength + ' chars)');
+  log('Pushing', appPods.length, 'pod(s) to', clientId + '...');
+  notifyPush('push-attempt', { clientId, pods: appPods });
+
+  try {
+    const injectTool = tools.find(t => t.name === 'inject');
+    const bundle = injectTool.handler({ clientId });
+    if (!bundle || !bundle.code) {
+      log('No injectable code for', clientId);
+      notifyPush('push-fail', { clientId, error: 'No injectable code produced', pods: appPods });
+      return;
+    }
+
+    ws.send(JSON.stringify({
+      type: 'call_tool',
+      callId: 'auto-push-' + Date.now(),
+      tool: clientId + '__execute_plugin',
+      arguments: { code: bundle.code },
+    }));
+    log('Pushed', bundle.plugins, 'plugins to', clientId, '(' + bundle.codeLength + ' chars)');
+    notifyPush('push-success', { clientId, plugins: bundle.plugins, codeLength: bundle.codeLength, pods: appPods });
+  } catch (e) {
+    log('Push failed for', clientId + ':', e.message);
+    notifyPush('push-fail', { clientId, error: e.message, pods: appPods });
+  }
 }
 
 /**
@@ -399,6 +430,7 @@ function pushToClient(ws, clientId) {
 function sweepExistingClients(ws) {
   if (!ws || ws.readyState !== 1) return;
   log('Sweeping for existing bootstrap clients...');
+  notifyPush('sweep-start', { message: 'Scanning for existing clients' });
   fetchBrokerClients(ws);
   // Start periodic polling for new clients
   startClientPoll(ws);
@@ -452,14 +484,16 @@ function fetchBrokerClients(ws) {
           }
         }
         if (pushed > 0) log('Sweep complete:', pushed, 'client(s) received plugins');
+        notifyPush('sweep-done', { clientsFound: clients.length, clientsPushed: pushed });
       } catch (e) {
         log('Sweep parse error:', e.message);
+        notifyPush('sweep-error', { error: e.message });
       }
     });
   });
 
-  req.on('error', (e) => { log('Sweep HTTP error:', e.message); });
-  req.on('timeout', () => { req.destroy(); log('Sweep HTTP timeout'); });
+  req.on('error', (e) => { log('Sweep HTTP error:', e.message); notifyPush('sweep-error', { error: 'HTTP: ' + e.message }); });
+  req.on('timeout', () => { req.destroy(); log('Sweep HTTP timeout'); notifyPush('sweep-error', { error: 'HTTP timeout' }); });
   req.write(payload);
   req.end();
 }

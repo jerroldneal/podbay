@@ -334,6 +334,22 @@
     .notif-item:hover { background:var(--bg-hover); }
     .notif-time { color:var(--text-muted); white-space:nowrap; min-width:70px; font-family:'Consolas',monospace; font-size:10px; }
     .notif-client { color:var(--accent); font-weight:500; min-width:110px; font-size:11px; }
+
+    /* ── Push Activity ── */
+    .push-event { display:flex; align-items:center; gap:8px; padding:8px 12px; border-bottom:1px solid var(--border); font-size:11px; }
+    .push-event:last-child { border-bottom:none; }
+    .push-event:hover { background:var(--bg-hover); }
+    .push-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+    .push-dot.success { background:var(--success); }
+    .push-dot.fail { background:var(--danger); }
+    .push-dot.skip { background:var(--text-muted); }
+    .push-dot.sweep { background:var(--accent); }
+    .push-dot.attempt { background:var(--warning); }
+    .push-time { color:var(--text-muted); font-size:10px; min-width:70px; flex-shrink:0; }
+    .push-client { color:var(--accent); font-weight:500; min-width:110px; font-size:11px; }
+    .push-msg { color:var(--text-secondary); flex:1; }
+    .push-msg .push-error { color:var(--danger); font-weight:500; }
+    .push-msg .push-detail { color:var(--text-muted); font-size:10px; }
     .notif-msg { color:var(--text-secondary); flex:1; word-break:break-word; font-size:11px; }
 
     /* ── Window cards ── */
@@ -483,6 +499,10 @@
       <span>🔔 Notifications</span>
       <span class="nav-item-count" id="navNotifCount">0</span>
     </div>
+    <div class="nav-item" data-section="push-activity">
+      <span>🚀 Push Activity</span>
+      <span class="nav-item-count" id="navPushCount">0</span>
+    </div>
     <div class="nav-section-label" style="margin-top:8px;">Tools</div>
     <div class="nav-item" data-section="pods">
       <span>🫛 Pods</span>
@@ -566,6 +586,7 @@
   let appData = [];
   let clientData = [];
   let notifData = [];
+  let pushActivityData = [];
 
   let busyApp = null;       // name of app currently opting in/out
   let busyAction = null;    // 'opt-in' | 'opt-out'
@@ -705,6 +726,13 @@
             }
             if (currentSection === 'apps') renderSection();
           }
+          // Push-activity notifications from reverse-client
+          if (d && d.category === 'push-activity') {
+            pushActivityData.unshift(d);
+            if (pushActivityData.length > 200) pushActivityData.length = 200;
+            updateStats();
+            if (currentSection === 'push-activity') renderSection();
+          }
           notifData.unshift({
             timestamp: Date.now(),
             clientId: msg.clientId || '',
@@ -776,6 +804,7 @@
     document.getElementById('navWindowCount').textContent = windows.length;
     document.getElementById('navClientCount').textContent = clientData.length;
     document.getElementById('navNotifCount').textContent = notifData.length;
+    document.getElementById('navPushCount').textContent = pushActivityData.length;
   }
 
   // ── Filtering ──────────────────────────────────────────────────────
@@ -794,6 +823,7 @@
       windows: 'Connected Windows',
       clients: 'Broker Clients',
       notifications: 'Notifications',
+      'push-activity': 'Push Activity',
       pods: 'Pods',
       'pod-editor': 'Pod Editor',
       'plugin-editor': 'Plugin Editor'
@@ -809,6 +839,7 @@
       case 'windows': renderWindows(area); break;
       case 'clients': renderClients(area); break;
       case 'notifications': renderNotifications(area); break;
+      case 'push-activity': renderPushActivity(area); break;
       case 'pods': renderPods(area); break;
       case 'pod-editor': renderEditorFrame(area, 'pod-editor.html'); break;
       case 'plugin-editor': renderEditorFrame(area, 'plugin-editor.html'); break;
@@ -965,6 +996,69 @@
           <span class="notif-time">${esc(time)}</span>
           <span class="notif-client">${esc(n.clientId || '')}</span>
           <span class="notif-msg">${esc(msg)}</span>
+        </div>`;
+      }).join('') + '</div>';
+  }
+
+  // ── Push Activity ──────────────────────────────────────────────────
+
+  function pushEventDot(event) {
+    if (event === 'push-success') return 'success';
+    if (event === 'push-fail') return 'fail';
+    if (event === 'push-skip') return 'skip';
+    if (event === 'push-attempt') return 'attempt';
+    return 'sweep'; // sweep-start, sweep-done, sweep-error
+  }
+
+  function pushEventLabel(ev) {
+    switch (ev.event) {
+      case 'push-attempt': return 'Pushing ' + (ev.pods || []).length + ' pod(s)';
+      case 'push-success': return 'Pushed ' + (ev.plugins || 0) + ' plugin(s) (' + (ev.codeLength || 0) + ' chars)';
+      case 'push-fail':    return '<span class="push-error">Failed: ' + esc(ev.error || 'Unknown') + '</span>';
+      case 'push-skip':    return '<span class="push-detail">' + esc(ev.reason || 'Skipped') + '</span>';
+      case 'sweep-start':  return 'Sweep started';
+      case 'sweep-done':   return 'Sweep: ' + (ev.clientsFound || 0) + ' client(s) found, ' + (ev.clientsPushed || 0) + ' pushed';
+      case 'sweep-error':  return '<span class="push-error">Sweep error: ' + esc(ev.error || 'Unknown') + '</span>';
+      default: return ev.event;
+    }
+  }
+
+  function renderPushActivity(area) {
+    const events = pushActivityData.filter(e =>
+      matchSearch(e.clientId || '') || matchSearch(e.event || '')
+    );
+    document.getElementById('topbarMeta').textContent = events.length + ' events';
+
+    if (!events.length) {
+      area.innerHTML = '<div class="empty-state">No push activity yet. Events appear when the reverse client pushes plugins to connected apps.</div>';
+      return;
+    }
+
+    // Summary bar: counts by type
+    const counts = { success: 0, fail: 0, skip: 0, sweep: 0 };
+    for (const e of pushActivityData) {
+      if (e.event === 'push-success') counts.success++;
+      else if (e.event === 'push-fail') counts.fail++;
+      else if (e.event === 'push-skip') counts.skip++;
+      else if (e.event.startsWith('sweep')) counts.sweep++;
+    }
+    const summary = `<div style="display:flex;gap:16px;padding:10px 12px;border-bottom:1px solid var(--border);font-size:11px;">`
+      + `<span style="color:var(--success)">✓ ${counts.success} pushed</span>`
+      + `<span style="color:var(--danger)">✗ ${counts.fail} failed</span>`
+      + `<span style="color:var(--text-muted)">⊘ ${counts.skip} skipped</span>`
+      + `<span style="color:var(--accent)">⟳ ${counts.sweep} sweeps</span>`
+      + `</div>`;
+
+    area.innerHTML = '<div class="section-box"><div class="section-box-header"><span>Push Activity Log</span></div>'
+      + summary
+      + events.slice(0, 200).map(ev => {
+        const time = ev.timestamp ? new Date(ev.timestamp).toLocaleTimeString() : '';
+        const dot = pushEventDot(ev.event);
+        return `<div class="push-event">
+          <span class="push-dot ${dot}"></span>
+          <span class="push-time">${esc(time)}</span>
+          <span class="push-client">${esc(ev.clientId || '—')}</span>
+          <span class="push-msg">${pushEventLabel(ev)}</span>
         </div>`;
       }).join('') + '</div>';
   }
