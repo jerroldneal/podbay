@@ -1,8 +1,5 @@
 {
   "clubwpt-desktop": {
-    "asarPath": "C:\\Users\\bitcoin_core\\AppData\\Local\\Programs\\clubwpt-desktop\\resources\\app.asar",
-    "pods": [
-      "test-pod.pod"
-    ]
+    "asarPath": "C:\\Users\\bitcoin_core\\AppData\\Local\\Programs\\clubwpt-desktop\\resources\\app.asar"
   }
 }

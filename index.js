@@ -10,7 +10,7 @@ const pods = require('./lib/pods');
 
 const TAG = '[PodBay]';
 const WORK_DIR = path.join(__dirname, '.work');
-const SYSTEM_PLUGIN_PATH = path.join(__dirname, 'lib', 'system-plugin.js');
+const BOOTSTRAP_PATH = path.join(__dirname, 'lib', 'bootstrap.js');
 const REGISTRY_PATH = path.join(__dirname, '.opted-in.json');
 
 function log(...args) { console.log(TAG, ...args); }
@@ -71,14 +71,13 @@ function validateName(name) {
 function loadRegistry() {
   try {
     const raw = JSON.parse(fs.readFileSync(REGISTRY_PATH, 'utf8'));
-    // Migrate legacy string values to object format
+    // Migrate legacy formats: string → { asarPath }, object with pods → { asarPath }
     const reg = {};
     for (const [k, v] of Object.entries(raw)) {
       if (typeof v === 'string') {
-        reg[k] = { asarPath: v, pods: [] };
-      } else {
-        reg[k] = v;
-        if (!Array.isArray(reg[k].pods)) reg[k].pods = [];
+        reg[k] = { asarPath: v };
+      } else if (v && v.asarPath) {
+        reg[k] = { asarPath: v.asarPath };
       }
     }
     return reg;
@@ -90,34 +89,22 @@ function saveRegistry(reg) {
   fs.writeFileSync(REGISTRY_PATH, JSON.stringify(reg, null, 2));
 }
 
-// ── Pod-to-app mapping ──────────────────────────────────────────────────
+// ── Pod-to-app mapping (delegated to pods module) ───────────────────────
 
 function getAppPods(name) {
-  const reg = loadRegistry();
-  const entry = reg[name];
-  if (!entry) return [];
-  return entry.pods || [];
+  return pods.getAppPods(name);
 }
 
 function assignPod(name, podFile) {
   const reg = loadRegistry();
   if (!reg[name]) throw new Error(`App "${name}" is not opted-in`);
-  if (!reg[name].pods) reg[name].pods = [];
-  if (!reg[name].pods.includes(podFile)) {
-    reg[name].pods.push(podFile);
-    saveRegistry(reg);
-  }
+  pods.assignPod(name, podFile);
 }
 
 function unassignPod(name, podFile) {
   const reg = loadRegistry();
   if (!reg[name]) throw new Error(`App "${name}" is not opted-in`);
-  if (!reg[name].pods) return;
-  const idx = reg[name].pods.indexOf(podFile);
-  if (idx >= 0) {
-    reg[name].pods.splice(idx, 1);
-    saveRegistry(reg);
-  }
+  pods.unassignPod(name, podFile);
 }
 
 function renameApp(oldName, newName) {
@@ -129,6 +116,8 @@ function renameApp(oldName, newName) {
   reg[newName] = reg[oldName];
   delete reg[oldName];
   saveRegistry(reg);
+  // Rename in app-pods.json too
+  pods.renameAppPods(oldName, newName);
 }
 
 // ── Opt-In / Opt-Out (System Plugin model) ───────────────────────────────
@@ -155,7 +144,7 @@ function optIn(asarPath, name, onProgress) {
     return;
   }
 
-  const payload = fs.readFileSync(SYSTEM_PLUGIN_PATH, 'utf8');
+  const payload = fs.readFileSync(BOOTSTRAP_PATH, 'utf8');
   const resourcesDir = path.dirname(asarPath);
 
   onProgress?.('backup', 1, 5);
@@ -167,7 +156,7 @@ function optIn(asarPath, name, onProgress) {
   asar.extract(asarPath, WORK_DIR);
 
   onProgress?.('patch', 3, 5);
-  log('Patching with system plugin...');
+  log('Patching with bootstrap...');
   asar.patchWindowManager(WORK_DIR, payload, resourcesDir, name);
 
   onProgress?.('repack', 4, 5);
@@ -180,7 +169,7 @@ function optIn(asarPath, name, onProgress) {
   for (const [n, entry] of Object.entries(reg)) {
     if (n !== name && sameAsarPath(entry.asarPath, asarPath)) { delete reg[n]; }
   }
-  reg[name] = { asarPath, pods: reg[name] ? (reg[name].pods || []) : [] };
+  reg[name] = { asarPath };
   saveRegistry(reg);
 
   onProgress?.('done', 5, 5);
@@ -248,7 +237,7 @@ function cliStatus(nameOrIndex) {
     name: app.name,
     status: asar.status(app.asarPath),
     registeredName: entry ? entry[0] : null,
-    pods: entry && entry[1] && entry[1].pods ? entry[1].pods : [],
+    pods: pods.getAppPods(entry ? entry[0] : null),
   }, null, 2));
 }
 
