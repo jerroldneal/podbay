@@ -34,3 +34,6 @@
 [submodule "workshops/require-extension"]
 	path = workshops/require-extension
 	url = https://github.com/jerroldneal/require-extension.git
+[submodule "workshops/podbay-cjs-poc"]
+	path = workshops/podbay-cjs-poc
+	url = https://github.com/jerroldneal/podbay-cjs-poc.git
