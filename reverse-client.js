@@ -567,6 +567,27 @@ function connect(url) {
         return;
       }
 
+      // ── React to broker client connect/disconnect events ──────────
+      if (msg.type === 'client_connected') {
+        const cid = msg.clientId;
+        if (cid && cid !== CLIENT_ID && getAppPods(cid).length > 0) {
+          log('Client connected:', cid, '— pushing pods...');
+          _pushedClients.delete(cid); // allow re-push for fresh connection
+          pushToClient(ws, cid);
+          _pushedClients.add(cid);
+        }
+        return;
+      }
+
+      if (msg.type === 'client_disconnected') {
+        const cid = msg.clientId;
+        if (cid) {
+          _pushedClients.delete(cid);
+          log('Client disconnected:', cid, '— cleared from push cache');
+        }
+        return;
+      }
+
       if (msg.type === 'tool_call') {
         const entry = tools.find(t => t.name === msg.tool);
         if (!entry) {

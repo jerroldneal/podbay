@@ -753,6 +753,8 @@
         }
         if (msg.type === 'client_connected' || msg.type === 'client_disconnected') {
           refreshClients();
+          // Push activity happens shortly after client connects — refresh after delay
+          setTimeout(refreshNotifs, 2000);
         }
       } catch (_) {}
     };
@@ -790,9 +792,19 @@
   async function refreshNotifs() {
     try {
       const notifs = await callTool('get_notifications', { limit: 50 });
-      notifData = Array.isArray(notifs) ? notifs : [];
+      // Normalize: broker API uses "event" field; dashboard expects "data"
+      notifData = Array.isArray(notifs) ? notifs.map(n => ({
+        timestamp: n.timestamp ? new Date(n.timestamp).getTime() : Date.now(),
+        clientId: n.clientId || '',
+        data: n.event || n.data
+      })) : [];
+      // Seed push activity from historical notifications
+      pushActivityData = notifData
+        .filter(n => n.data && n.data.category === 'push-activity')
+        .map(n => n.data);
     } catch (_) {}
     updateStats();
+    if (currentSection === 'push-activity' || currentSection === 'notifications') renderSection();
   }
 
   async function refreshAll() {

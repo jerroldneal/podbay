@@ -6,15 +6,19 @@ Self-contained CLI that manages Electron app opt-in to the MCP broker and delive
 
 **Two-stage injection model**: Opt-in patches the app's ASAR with a minimal **bootstrap** (~95 lines) that only connects to the broker and exposes `execute_plugin`. Everything else — plugin loading, tool registration, status reporting — is pushed by the broker via `execute_plugin` after the bootstrap connects.
 
-**Separated concerns**:
+**Separated concerns** (decoupled data model):
 - `.opted-in.json` — tracks which apps are bootstrapped (name → ASAR path only)
-- `pods/app-pods.json` — maps app names to their assigned pod files
+- `pods/app-pods.json` — maps app names to their assigned pod files (independent of opt-in state)
 
-Pod files are app-agnostic — the same `.pod` file can be shared across multiple apps.
+Pod files are app-agnostic — the same `.pod` file can be shared across multiple apps. Pod assignment does not require the app to be opted-in; pods can be pre-configured before bootstrap injection.
 
 PodBay is **domain-agnostic** — it never embeds app-specific knowledge into client IDs or tool names. The caller chooses a name at opt-in time.
 
 Supports three modes: interactive menu (default), scriptable CLI parameters, and MCP reverse client (publishes all operations as broker tools).
+
+**Dashboard**: A web UI (nginx on `:8080`) provides app management, pod editing, plugin editing, a remote JavaScript console, and a push activity log with real-time notifications.
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for system design and [PLUGIN_MANUAL.md](PLUGIN_MANUAL.md) for per-plugin documentation.
 
 ## Pod Files
 
@@ -104,7 +108,7 @@ Registers as `podbay` on the broker with tools:
 | `pods_save` | Create or update a `.pod` file |
 | `pods_delete` | Delete a `.pod` file |
 | `pods_resolve` | Preview resolved plugin code from all pods |
-| `pods_assign` | Assign a `.pod` file to an opted-in app |
+| `pods_assign` | Assign a `.pod` file to an app |
 | `pods_unassign` | Unassign a `.pod` file from an app |
 | `pods_app` | List pods assigned to a specific app |
 
@@ -124,28 +128,39 @@ podbay/
   reverse-client.js     ← Reverse client — publishes tools on broker
   Dockerfile            ← Container image for reverse client
   docker-compose.yml    ← Docker orchestration
+  dashboard.html        ← Main dashboard UI (app list, pods, push activity)
+  console.html          ← Remote JavaScript console (multi-tab)
+  pod-editor.html       ← Pod file editor
+  plugin-editor.html    ← Plugin editor
   lib/discover.js       ← Scan for installed Electron apps
   lib/asar.js           ← ASAR backup/extract/patch/repack/restore
-  lib/system-plugin.js  ← Minimal injection client (name-based broker registration)
+  lib/bootstrap.js      ← Minimal injection payload (~95 lines)
+  lib/broker-client.js  ← Browser-side broker client SDK
+  lib/bridge.js         ← High-level bridge factory
+  lib/hook.js           ← Method interception utility
   lib/pods.js           ← Pod file CRUD and plugin resolution
+  plugins/              ← Reusable plugin source files
+  plugins/cwg/          ← CWG-specific SRP plugin modules
   pods/                 ← Pod files (.pod JSON files)
-  .opted-in.json        ← Registry: maps names → {asarPath, pods[]}
+  pods/app-pods.json    ← Maps app names → pod file arrays
+  .opted-in.json        ← Registry: maps names → {asarPath}
 ```
 
 ### Opt-In Flow
 
 1. User opts-in an app with a name (e.g., `cwg`)
-2. PodBay patches the ASAR to inject the system plugin with `var __podbayName = "cwg"`
-3. User assigns pod files to the app (e.g., `cwg-debug.pod`)
+2. PodBay patches the ASAR to inject the bootstrap with `var __podbayName = "cwg"`
+3. User assigns pod files to the app (e.g., `cwg-debug.pod`) — this can be done before or after opt-in
 
 ### Injection Flow (at app launch)
 
-1. App starts → system plugin loads in every renderer window
-2. System plugin connects to broker as `cwg`
-3. System plugin calls PodBay's `inject` tool
-4. PodBay looks up which pods are assigned to `cwg`
+1. App starts → bootstrap loads in every renderer window
+2. Bootstrap connects to broker as `cwg`
+3. Bootstrap calls PodBay's `inject` tool (or PodBay pushes automatically on client detection)
+4. PodBay looks up which pods are assigned to `cwg` in `pods/app-pods.json`
 5. PodBay resolves all plugins from those pods, bundles them
 6. Bundle is returned and executed in the renderer
+7. Push success/failure is logged and sent as a broker notification (visible in dashboard)
 
 ### Name Rules
 
@@ -159,20 +174,20 @@ const { optIn, optOut, discover, resolveApp, pods, assignPod, unassignPod, getAp
 const apps = discover();
 const app = resolveApp(apps, 'clubwpt-desktop');
 
-// Opt-in
-optIn(app.asarPath, 'cwg');
-
-// Assign pods
-assignPod('cwg', 'cwg-debug.pod');
-assignPod('cwg', 'example.pod');
+// Assign pods (works before or after opt-in)
+assignPod('clubwpt-desktop', 'cwg-debug.pod');
+assignPod('clubwpt-desktop', 'example.pod');
 
 // Check assignments
-getAppPods('cwg');  // ['cwg-debug.pod', 'example.pod']
+getAppPods('clubwpt-desktop');  // ['cwg-debug.pod', 'example.pod']
+
+// Opt-in (patches ASAR with bootstrap)
+optIn(app.asarPath, 'cwg');
 
 // Unassign
-unassignPod('cwg', 'example.pod');
+unassignPod('clubwpt-desktop', 'example.pod');
 
-// Opt-out (removes registry entry including pod assignments)
+// Opt-out (restores original ASAR; pod assignments in app-pods.json are preserved)
 optOut(app.asarPath);
 ```
 

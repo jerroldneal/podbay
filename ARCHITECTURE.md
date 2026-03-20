@@ -272,7 +272,7 @@ flowchart LR
     Resolve --> Bundle["Combined JavaScript Bundle"]
 ```
 
-Opt-in state and pod assignments are **separated concerns**:
+Opt-in state and pod assignments are **separated concerns** (decoupled):
 
 `.opted-in.json` — only tracks whether an app is bootstrapped:
 ```json
@@ -283,12 +283,14 @@ Opt-in state and pod assignments are **separated concerns**:
 }
 ```
 
-`pods/app-pods.json` — maps app names to their assigned pods:
+`pods/app-pods.json` — maps app names to their assigned pods (independent of opt-in):
 ```json
 {
   "clubwpt-desktop": ["console.pod", "cwg-debug.pod"]
 }
 ```
+
+Pod assignment does not require the app to be in `.opted-in.json`. This allows pre-configuring pod assignments before opt-in, and preserves them across opt-out/opt-in cycles.
 
 ---
 
@@ -595,7 +597,7 @@ flowchart TB
 | `pods_save` | Create or update a `.pod` file |
 | `pods_delete` | Delete a `.pod` file |
 | `pods_resolve` | Preview resolved plugin code for all pods |
-| `pods_assign` | Assign a pod to an opted-in app |
+| `pods_assign` | Assign a pod to an app |
 | `pods_unassign` | Unassign a pod from an app |
 | `pods_app` | List pods assigned to an app |
 
@@ -615,6 +617,50 @@ Plugins can register additional tools at runtime via `window.PodBayBrokerClient.
 - `eval` — Evaluate JavaScript in page context
 - `get_console` — Return console page URL
 - `run_console` — Open console page in browser
+
+---
+
+## Push Notification System
+
+The reverse client sends structured broker notifications on push events, enabling real-time observability in the dashboard.
+
+### Push Activity Flow
+
+```mermaid
+sequenceDiagram
+    participant RC as Reverse Client
+    participant Broker as MCP Broker
+    participant Dashboard as Dashboard UI
+
+    RC->>RC: pushToClient(clientId)
+    RC->>RC: Resolve pods → bundle plugins
+    alt Push succeeds
+        RC->>Broker: notification: push_success<br/>{client, pods, pluginCount, charCount}
+    else Push fails
+        RC->>Broker: notification: push_error<br/>{client, error}
+    end
+    Dashboard->>Broker: GET /notifications (poll)
+    Broker-->>Dashboard: notification events
+    Dashboard->>Dashboard: Render in Push Activity log
+```
+
+### Notification Types
+
+| Type | Trigger | Data |
+|------|---------|------|
+| `push_success` | Plugin bundle delivered to a client | client, pods, pluginCount, charCount |
+| `push_error` | Push failed (no pods, resolve error, tool_call error) | client, error |
+
+Sweep notifications (periodic client detection) are suppressed when no pushes occur to avoid noise
+The 5-second sweep only notifies when `pushed > 0`, and deduplicates repeated errors using `_lastSweepError`.
+
+### Dashboard Push Activity
+
+The dashboard (`dashboard.html`) includes a **Push Activity** section that renders push events as a scrollable log with:
+- Success/error badges per event
+- Client ID, pod names, plugin count, and bundle size
+- Expandable error details
+- Structured notification rendering with `formatNotifData()` for all notification types
 
 ---
 
