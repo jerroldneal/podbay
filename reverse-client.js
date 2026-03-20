@@ -222,15 +222,11 @@ const tools = [
         const header = '// [PodBay] plugin: ' + (p.type || 'unknown') + ' — ' + (p.description || '');
         let body;
         if (p.id && p.cache) {
-          // Inline mode: pre-register full module code in require.cache
+          // Inline mode: pre-register source in require.cache via PodBay Require
           const safeId = p.id.replace(/'/g, "\\'");
+          const escaped = p.code.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n').replace(/\r/g, '\\r');
           body = 'try { (function () {\n'
-            + 'var __m = { exports: {}, id: \'' + safeId + '\', loaded: false };\n'
-            + '(function (module, exports) {\n'
-            + p.code + '\n'
-            + '})(__m, __m.exports);\n'
-            + '__m.loaded = true;\n'
-            + 'if (window.require && window.require.cache) window.require.cache[\'' + safeId + '\'] = __m;\n'
+            + 'if (window.require && window.require.register) { window.require.register(\'' + safeId + '\', \'' + escaped + '\'); }\n'
             + '})(); }'
             + ' catch (__e) { console.error("[PodBay] lib error [' + (p.type || 'unknown') + ']:", __e && __e.message); }';
         } else if (p.id && p.filePath) {

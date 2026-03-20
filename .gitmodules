@@ -31,3 +31,6 @@
 [submodule ".status-reports"]
 	path = .status-reports
 	url = https://github.com/jerroldneal/all-status-reports.git
+[submodule "workshops/require-extension"]
+	path = workshops/require-extension
+	url = https://github.com/jerroldneal/require-extension.git
