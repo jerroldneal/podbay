@@ -37,3 +37,6 @@
 [submodule "workshops/podbay-cjs-poc"]
 	path = workshops/podbay-cjs-poc
 	url = https://github.com/jerroldneal/podbay-cjs-poc.git
+[submodule "fixes"]
+	path = fixes
+	url = https://github.com/jerroldneal/all-fixes.git
