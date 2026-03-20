@@ -1705,7 +1705,7 @@
   window.execInWindow = function(clientId) {
     const code = prompt('JavaScript to execute in ' + clientId + ':');
     if (!code) return;
-    callTool(clientId + '__execute_plugin', { code: code })
+    callTool(clientId + '__execute', { code: code })
       .then(r => alert('Result: ' + (typeof r === 'string' ? r : JSON.stringify(r, null, 2))))
       .catch(e => alert('Error: ' + e.message));
   };

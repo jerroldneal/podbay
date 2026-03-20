@@ -420,8 +420,8 @@ function pushToClient(ws, clientId) {
     ws.send(JSON.stringify({
       type: 'call_tool',
       callId: 'auto-push-' + Date.now(),
-      tool: clientId + '__execute_plugin',
-      arguments: { code: bundle.code },
+      tool: clientId + '__execute',
+      arguments: { code: bundle.code, useIIFE: false },
     }));
     log('Pushed', bundle.plugins, 'plugins to', clientId, '(' + bundle.codeLength + ' chars)');
     notifyPush('push-success', { clientId, plugins: bundle.plugins, codeLength: bundle.codeLength, pods: appPods });
