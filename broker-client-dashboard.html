@@ -159,12 +159,28 @@
 
     .log-body { flex: 1; overflow-y: auto; font-family: 'Consolas','JetBrains Mono','Fira Code',monospace; font-size: 11px; }
     .log-row {
-      display: grid; grid-template-columns: 88px 160px 132px 1fr;
+      display: grid; grid-template-columns: 88px 160px 132px 1fr 16px;
       gap: 0 8px; padding: 3px 12px; border-bottom: 1px solid rgba(255,255,255,.02);
-      align-items: baseline; transition: background 60ms;
+      align-items: baseline; transition: background 60ms; cursor: pointer;
     }
     .log-row:hover { background: var(--bg-el); }
     .log-row.is-error { background: rgba(252,129,129,.04); }
+    .log-row.expanded { background: var(--bg-el); align-items: start; }
+    .log-chevron { color: var(--textm); font-size: 9px; line-height: 1.8; user-select: none; text-align: center; }
+    .log-expand {
+      grid-column: 1 / -1; padding: 8px 10px 10px; margin: 2px 0 4px;
+      background: var(--bg-hover); border-radius: 4px; overflow-x: auto;
+    }
+    .log-expand pre {
+      font-family: 'Consolas','JetBrains Mono','Fira Code',monospace;
+      font-size: 11px; line-height: 1.6; margin: 0;
+      white-space: pre-wrap; word-break: break-word; color: var(--text1);
+    }
+    .jk { color: var(--accent); }
+    .js { color: var(--info); }
+    .jn { color: var(--warning); }
+    .jb { color: var(--purple); }
+    .jnull { color: var(--danger); font-style: italic; }
     .log-ts { color: var(--textm); font-size: 10px; }
     .log-client { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text2); font-size: 10px; }
     .ev-badge { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 10px; font-weight: 600; letter-spacing: .3px; }
@@ -356,6 +372,28 @@
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }
 
+  function prettyJson(val, indent) {
+    indent = indent || 0;
+    var pad  = new Array(indent + 1).join('  ');
+    var pad1 = new Array(indent + 2).join('  ');
+    if (val === null)            return '<span class="jnull">null</span>';
+    if (typeof val === 'boolean') return '<span class="jb">' + val + '</span>';
+    if (typeof val === 'number')  return '<span class="jn">' + val + '</span>';
+    if (typeof val === 'string')  return '<span class="js">"' + esc(val) + '"</span>';
+    if (Array.isArray(val)) {
+      if (!val.length) return '[]';
+      return '[\n' + val.map(function (v) { return pad1 + prettyJson(v, indent + 1); }).join(',\n') + '\n' + pad + ']';
+    }
+    if (typeof val === 'object') {
+      var keys = Object.keys(val);
+      if (!keys.length) return '{}';
+      return '{\n' + keys.map(function (k) {
+        return pad1 + '<span class="jk">"' + esc(k) + '"</span>: ' + prettyJson(val[k], indent + 1);
+      }).join(',\n') + '\n' + pad + '}';
+    }
+    return esc(String(val));
+  }
+
   function fmtTime(ts) {
     var d = new Date(ts);
     return p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds()) + '.' + p3(d.getMilliseconds());
@@ -372,6 +410,9 @@
   var _logLen   = -1;
   var _logFilter = '';
   var _logSel   = null;
+
+  // Expanded log rows (key → true)
+  var _expandedKeys = {};
 
   // ── DOM refs ──────────────────────────────────────────────────────────
   var elNoSource  = document.getElementById('no-source');
@@ -543,15 +584,32 @@
     var wasAtBottom = elLogBody.scrollHeight - elLogBody.scrollTop <= elLogBody.clientHeight + 40;
 
     elLogBody.innerHTML = rows.map(function (e) {
-      var m    = evMeta(e.event, e.detail);
-      var isErr = (e.event === 'tool_result' && e.detail && e.detail.isError);
-      return '<div class="log-row' + (isErr ? ' is-error' : '') + '">'
+      var m         = evMeta(e.event, e.detail);
+      var isErr     = (e.event === 'tool_result' && e.detail && e.detail.isError);
+      var key       = e.ts + '|' + e.clientId + '|' + e.event;
+      var isExp     = !!_expandedKeys[key];
+      var hasDetail = !!e.detail;
+      var expandBlock = (isExp && hasDetail)
+        ? '<div class="log-expand"><pre>' + prettyJson(e.detail) + '</pre></div>' : '';
+      return '<div class="log-row' + (isErr ? ' is-error' : '') + (isExp ? ' expanded' : '') + '" data-key="' + esc(key) + '">'
         + '<div class="log-ts">'     + fmtTime(e.ts) + '</div>'
         + '<div class="log-client" title="' + esc(e.clientId) + '">' + esc(e.clientId) + '</div>'
         + '<div><span class="ev-badge ' + m.cls + '">' + m.label + '</span></div>'
         + '<div class="log-detail">' + fmtDetail(e.event, e.detail) + '</div>'
+        + '<div class="log-chevron">' + (hasDetail ? (isExp ? '&#9660;' : '&#9654;') : '') + '</div>'
+        + expandBlock
         + '</div>';
     }).join('');
+
+    elLogBody.querySelectorAll('.log-row[data-key]').forEach(function (row) {
+      row.addEventListener('click', function () {
+        var k = row.dataset.key;
+        if (_expandedKeys[k]) delete _expandedKeys[k];
+        else _expandedKeys[k] = true;
+        _logLen = -1;
+        renderLog(getSource());
+      });
+    });
 
     if (elChkAuto.checked && (wasAtBottom || _logLen <= 10)) {
       elLogBody.scrollTop = elLogBody.scrollHeight;
