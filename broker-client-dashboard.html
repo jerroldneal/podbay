@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -28,6 +28,34 @@
       --textm: #4a5568;
       --bdr:   rgba(255,255,255,.06);
       --r:     8px;
+      --overlay: rgba(10,14,23,.92);
+      --scrollbar: rgba(255,255,255,.12);
+      --scrollbar-hover: rgba(255,255,255,.22);
+    }
+    [data-theme="light"] {
+      --bg-base:    #f0f4f8;
+      --bg-surface: #ffffff;
+      --bg-el:      #e2e8f0;
+      --bg-hover:   #cbd5e0;
+      --accent:     #2b6cb0;
+      --acc-dim:    rgba(43,108,176,.12);
+      --success:    #276749;
+      --suc-dim:    rgba(39,103,73,.12);
+      --danger:     #c53030;
+      --dan-dim:    rgba(197,48,48,.10);
+      --warning:    #c05621;
+      --war-dim:    rgba(192,86,33,.10);
+      --purple:     #553c9a;
+      --pur-dim:    rgba(85,60,154,.10);
+      --info:       #0987a0;
+      --inf-dim:    rgba(9,135,160,.10);
+      --text1: #1a202c;
+      --text2: #2d3748;
+      --textm: #718096;
+      --bdr:   rgba(0,0,0,.10);
+      --overlay: rgba(240,244,248,.92);
+      --scrollbar: rgba(0,0,0,.15);
+      --scrollbar-hover: rgba(0,0,0,.28);
     }
     body {
       font-family: 'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
@@ -157,7 +185,7 @@
 
     /* ── no-source gate ── */
     .no-source {
-      position: fixed; inset: 0; background: rgba(10,14,23,.92);
+      position: fixed; inset: 0; background: var(--overlay);
       display: flex; align-items: center; justify-content: center;
       flex-direction: column; gap: 14px; z-index: 1000;
     }
@@ -169,12 +197,18 @@
     /* ── scrollbars ── */
     ::-webkit-scrollbar { width: 6px; height: 6px; }
     ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,.1); border-radius: 3px; }
-    ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.18); }
+    ::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-hover); }
+    :focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+      border-radius: 3px;
+    }
 
     @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
     @keyframes spin   { to { transform: rotate(360deg); } }
   </style>
+  <script>(function(){var t=localStorage.getItem('broker-dash-theme');if(t)document.documentElement.setAttribute('data-theme',t);})();</script>
 </head>
 <body>
 
@@ -202,6 +236,7 @@
     <div class="src-dot" id="src-dot"></div>
     <span id="src-label">no source</span>
   </div>
+  <button class="btn" id="btn-theme" aria-label="Toggle light/dark theme">☀ Theme</button>
   <button class="btn active" id="btn-pause">Pause</button>
   <button class="btn danger" id="btn-clear">Clear History</button>
 </div>
@@ -218,12 +253,12 @@
   <div class="panel-right">
     <div class="log-toolbar">
       <label>Event Log</label>
-      <input class="filter-input" id="log-filter" placeholder="Filter by clientId, event, or detail…">
+      <input class="filter-input" id="log-filter" placeholder="Filter by clientId, event, or detail…" aria-label="Filter events by clientId, event type, or detail">
       <label class="chk-label">
         <input type="checkbox" id="chk-auto" checked> Auto-scroll
       </label>
       <div class="spacer"></div>
-      <span class="log-count" id="log-count">0 events</span>
+      <span class="log-count" id="log-count" aria-live="polite" aria-atomic="true">0 events</span>
     </div>
     <div class="log-body" id="log-body"></div>
   </div>
@@ -233,6 +268,21 @@
 <script>
 ;(function () {
   'use strict';
+
+  // ── Theme toggle ─────────────────────────────────────────────────────
+  var elBtnTheme = document.getElementById('btn-theme');
+  (function initTheme() {
+    var theme = localStorage.getItem('broker-dash-theme') || 'dark';
+    document.documentElement.setAttribute('data-theme', theme);
+    elBtnTheme.textContent = theme === 'light' ? '🌙 Theme' : '☀ Theme';
+  })();
+  elBtnTheme.addEventListener('click', function () {
+    var cur = document.documentElement.getAttribute('data-theme');
+    var next = cur === 'dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', next);
+    localStorage.setItem('broker-dash-theme', next);
+    elBtnTheme.textContent = next === 'light' ? '🌙 Theme' : '☀ Theme';
+  });
 
   // ── Source detection ─────────────────────────────────────────────────
   // Works as: inline page | srcdoc iframe (parent) | about:blank popup (opener)
@@ -347,8 +397,16 @@
   });
 
   elBtnClear.addEventListener('click', function () {
+    if (!confirm('Clear all event history? This cannot be undone.')) return;
     var src = getSource();
     if (src && src.clearHistory) { src.clearHistory(); _logLen = -1; }
+  });
+
+  // ── Persistent preferences ───────────────────────────────────────────
+  var savedAutoScroll = localStorage.getItem('broker-dash-autoscroll');
+  if (savedAutoScroll !== null) elChkAuto.checked = savedAutoScroll === '1';
+  elChkAuto.addEventListener('change', function () {
+    localStorage.setItem('broker-dash-autoscroll', elChkAuto.checked ? '1' : '0');
   });
 
   elFilter.addEventListener('input', function () {
@@ -419,7 +477,7 @@
         ? '<button class="btn danger ic-btn" data-a="disconnect" data-id="' + esc(id) + '">Disconnect</button>'
         : '<button class="btn ic-btn" data-a="reconnect" data-id="' + esc(id) + '">Reconnect</button>';
       var toolNames = c.tools.length ? '<div class="ic-tools">' + esc(c.tools.join(', ')) + '</div>' : '';
-      return '<div class="instance-card' + selCls + connCls + '" data-id="' + esc(id) + '">'
+      return '<div class="instance-card' + selCls + connCls + '" data-id="' + esc(id) + '" role="button" tabindex="0" aria-label="Instance ' + esc(id) + '">'
         + '<div class="ic-head"><div class="status-dot ' + dotCls + '"></div>'
         + '<div class="ic-id" title="' + esc(id) + '">' + esc(id) + '</div></div>'
         + '<div class="ic-badges"><span class="badge tools">' + c.tools.length + ' tools</span>' + regBadge + reconBadge + '</div>'
@@ -434,6 +492,15 @@
     elInstList.querySelectorAll('.instance-card').forEach(function (card) {
       card.addEventListener('click', function (e) {
         if (e.target.classList.contains('ic-btn')) return;
+        sel = (card.dataset.id === sel) ? null : card.dataset.id;
+        _instSig = '';
+        _logSel = null;
+        render();
+      });
+      card.addEventListener('keydown', function (e) {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        if (e.target !== card) return;
+        e.preventDefault();
         sel = (card.dataset.id === sel) ? null : card.dataset.id;
         _instSig = '';
         _logSel = null;
