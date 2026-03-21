@@ -40,3 +40,6 @@
 [submodule "fixes"]
 	path = fixes
 	url = https://github.com/jerroldneal/all-fixes.git
+[submodule "workshops/mcp-broker"]
+	path = workshops/mcp-broker
+	url = https://github.com/jerroldneal/mcp-broker.git
