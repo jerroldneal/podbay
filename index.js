@@ -13,15 +13,24 @@ const WORK_DIR = path.join(__dirname, '.work');
 const BOOTSTRAP_PATH = path.join(__dirname, 'lib', 'bootstrap.js');
 const REGISTRY_PATH = path.join(__dirname, '.opted-in.json');
 
+// Extracted bootstrap modules — assembled into payload at opt-in time
+const BOOTSTRAP_MODULES = {
+  'broker-transport': path.join(__dirname, 'lib', 'broker-transport.js'),
+  'tool-handler': path.join(__dirname, 'lib', 'tool-handler.js'),
+  'mcp-client': path.join(__dirname, 'lib', 'mcp-client.js'),
+};
+
+// Frame clients: URL pattern → broker client name
+// Frames matching these patterns get the standard PodBay bootstrap
+// and appear as unique clients with execute/info/inspect tools.
+const FRAME_CLIENTS = {
+  'clubwptgold.com': 'clubwpt-frame-login',
+};
+
 function log(...args) { console.log(TAG, ...args); }
 
-// ── Path matching (cross-environment) ─────────────────────────────────────
+// ── Path matching ─────────────────────────────────────────────────────────
 
-/**
- * Extract the app folder name from an ASAR path.
- * Handles both Windows paths (C:\...\clubwpt-desktop\resources\app.asar)
- * and Docker paths (/host/programs/clubwpt-desktop/resources/app.asar).
- */
 function appFolderName(asarPath) {
   if (!asarPath) return null;
   const normalized = asarPath.replace(/\\/g, '/');
@@ -30,10 +39,6 @@ function appFolderName(asarPath) {
   return resIdx > 0 ? parts[resIdx - 1] : null;
 }
 
-/**
- * Compare two ASAR paths for logical equality, tolerating Windows vs Docker
- * path prefix differences (e.g. C:\Users\...\Programs vs /host/programs).
- */
 function sameAsarPath(a, b) {
   if (a === b) return true;
   const fa = appFolderName(a);
@@ -43,10 +48,6 @@ function sameAsarPath(a, b) {
 
 // ── Name helpers ─────────────────────────────────────────────────────────
 
-/**
- * Normalize an app directory name into a valid client name.
- * e.g. "ClubWPT Gold" → "clubwpt-gold"
- */
 function normalizeName(raw) {
   return raw
     .toLowerCase()
@@ -57,21 +58,17 @@ function normalizeName(raw) {
 
 const NAME_RE = /^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/;
 
-/**
- * Validate a client name: lowercase alphanumeric + hyphens, not blank.
- */
 function validateName(name) {
   if (!name) return 'Name cannot be blank';
   if (!NAME_RE.test(name)) return 'Name must be lowercase letters, digits, and hyphens (no leading/trailing hyphen)';
   return null;
 }
 
-// ── Name registry (uniqueness tracking & pod assignments) ────────────────
+// ── Name registry ────────────────────────────────────────────────────────
 
 function loadRegistry() {
   try {
     const raw = JSON.parse(fs.readFileSync(REGISTRY_PATH, 'utf8'));
-    // Migrate legacy formats: string → { asarPath }, object with pods → { asarPath }
     const reg = {};
     for (const [k, v] of Object.entries(raw)) {
       if (typeof v === 'string') {
@@ -89,7 +86,7 @@ function saveRegistry(reg) {
   fs.writeFileSync(REGISTRY_PATH, JSON.stringify(reg, null, 2));
 }
 
-// ── Pod-to-app mapping (delegated to pods module) ───────────────────────
+// ── Pod helpers ─────────────────────────────────────────────────────────
 
 function getAppPods(name) {
   return pods.getAppPods(name);
@@ -112,20 +109,35 @@ function renameApp(oldName, newName) {
   reg[newName] = reg[oldName];
   delete reg[oldName];
   saveRegistry(reg);
-  // Rename in app-pods.json too
   pods.renameAppPods(oldName, newName);
 }
 
-// ── Opt-In / Opt-Out (System Plugin model) ───────────────────────────────
+// ── Bootstrap Assembler ──────────────────────────────────────────────────
+// Reads bootstrap.js + extracted modules and produces a self-contained payload.
+// Modules are pre-registered in window.__podbayModules so bootstrap's require()
+// polyfill can find them without any HTTP fetch at runtime.
 
-/**
- * Opt-in an Electron app — inject system plugin via ASAR patch.
- * The system plugin connects to the broker and requests its injection bundle
- * from PodBay, replacing the old portal-payload approach.
- * @param {string} asarPath
- * @param {string} name - Required client name (lowercase alphanumeric + hyphens)
- * @param {function} [onProgress] - Optional callback: (step, progress, total) => void
- */
+function buildBootstrapPayload() {
+  const bootstrap = fs.readFileSync(BOOTSTRAP_PATH, 'utf8');
+
+  const moduleBlock = ['// Pre-loaded bootstrap modules (assembled at opt-in time)',
+    'window.__podbayModules = window.__podbayModules || {};'];
+  for (const [name, filePath] of Object.entries(BOOTSTRAP_MODULES)) {
+    const source = fs.readFileSync(filePath, 'utf8');
+    const escaped = source.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n').replace(/\r/g, '');
+    moduleBlock.push("window.__podbayModules['" + name + "'] = '" + escaped + "';");
+  }
+
+  log('Bootstrap assembled:', Object.keys(BOOTSTRAP_MODULES).length, 'modules embedded');
+  return moduleBlock.join('\n') + '\n\n' + bootstrap;
+}
+
+function buildFrameClients() {
+  return Object.assign({}, FRAME_CLIENTS);
+}
+
+// ── Opt-In / Opt-Out ─────────────────────────────────────────────────────
+
 function optIn(asarPath, name, onProgress) {
   const err = validateName(name);
   if (err) throw new Error(err);
@@ -140,7 +152,8 @@ function optIn(asarPath, name, onProgress) {
     return;
   }
 
-  const payload = fs.readFileSync(BOOTSTRAP_PATH, 'utf8');
+  const payload = buildBootstrapPayload();
+  const frameClients = buildFrameClients();
   const resourcesDir = path.dirname(asarPath);
 
   onProgress?.('backup', 1, 5);
@@ -153,7 +166,7 @@ function optIn(asarPath, name, onProgress) {
 
   onProgress?.('patch', 3, 5);
   log('Patching with bootstrap...');
-  asar.patchWindowManager(WORK_DIR, payload, resourcesDir, name);
+  asar.patchWindowManager(WORK_DIR, payload, resourcesDir, name, frameClients);
 
   onProgress?.('repack', 4, 5);
   log('Repacking...');
@@ -161,7 +174,6 @@ function optIn(asarPath, name, onProgress) {
 
   fs.rmSync(WORK_DIR, { recursive: true, force: true });
 
-  // Remove any existing entry for this asarPath under a different name
   for (const [n, entry] of Object.entries(reg)) {
     if (n !== name && sameAsarPath(entry.asarPath, asarPath)) { delete reg[n]; }
   }
@@ -172,11 +184,6 @@ function optIn(asarPath, name, onProgress) {
   log('Opted-in as', name + '. Restart the app to activate.');
 }
 
-/**
- * Opt-out an Electron app — restore original ASAR from backup.
- * @param {string} asarPath
- * @param {function} [onProgress] - Optional callback: (step, progress, total) => void
- */
 function optOut(asarPath, onProgress) {
   if (asar.status(asarPath) === 'closed') {
     log('Already opted-out for', asarPath);
@@ -197,12 +204,13 @@ function optOut(asarPath, onProgress) {
   log('Opted-out. Restart the app to restore original behavior.');
 }
 
-// ── Resolve app by name or 1-based index ─────────────────────────────────
+// ── Resolve app by name or index ─────────────────────────────────────────
 
 function resolveApp(apps, nameOrIndex) {
   const idx = parseInt(nameOrIndex, 10);
   if (!isNaN(idx) && idx >= 1 && idx <= apps.length) return apps[idx - 1];
-  return apps.find(a => a.name.toLowerCase() === nameOrIndex.toLowerCase()) || null;
+  const lower = (nameOrIndex || '').toLowerCase();
+  return apps.find(a => a.name.toLowerCase() === lower) || null;
 }
 
 // ── Non-interactive CLI ──────────────────────────────────────────────────
@@ -252,12 +260,29 @@ function cliOptOut(nameOrIndex) {
   optOut(app.asarPath);
 }
 
+function cliRebuild(nameOrIndex) {
+  const apps = discover();
+  const app = resolveApp(apps, nameOrIndex);
+  if (!app) { log('App not found:', nameOrIndex); process.exit(1); }
+  const reg = loadRegistry();
+  const entry = Object.entries(reg).find(([, v]) => v && sameAsarPath(v.asarPath, app.asarPath));
+  const name = entry ? entry[0] : normalizeName(app.name);
+  if (asar.status(app.asarPath) === 'open') {
+    log('Opting out...');
+    optOut(app.asarPath);
+  }
+  log('Opting in as', name + '...');
+  optIn(app.asarPath, name);
+  log('Rebuild complete. Restart the app.');
+}
+
 function handleCli(args) {
   const cmd = args[0];
   switch (cmd) {
     case 'list': return cliList();
     case 'opt-in': return cliOptIn(args[1], args[2]);
     case 'opt-out': return cliOptOut(args[1]);
+    case 'rebuild': return cliRebuild(args[1]);
     case 'status': return cliStatus(args[1]);
     case 'pods': {
       const sub = args[1];
@@ -299,7 +324,7 @@ function handleCli(args) {
     }
     default:
       log('Unknown command:', cmd);
-      log('Usage: podbay <list|opt-in|opt-out|status|pods> [args]');
+      log('Usage: podbay <list|opt-in|opt-out|rebuild|status|pods> [args]');
       process.exit(1);
   }
 }
@@ -339,7 +364,8 @@ async function interactive() {
     console.log(`\n  ${app.name} — ${current}\n`);
     console.log('  1. Opt-In');
     console.log('  2. Opt-Out');
-    console.log('  3. Assign pods');
+    console.log('  3. Rebuild (opt-out + opt-in)');
+    console.log('  4. Assign pods');
 
     const action = await ask(rl, '\nAction: ');
     const a = action.trim();
@@ -354,7 +380,20 @@ async function interactive() {
         break;
       }
       case '2': case 'opt-out': optOut(app.asarPath); break;
-      case '3': case 'pods': {
+      case '3': case 'rebuild': {
+        const reg = loadRegistry();
+        const entry = Object.entries(reg).find(([, v]) => v && sameAsarPath(v.asarPath, app.asarPath));
+        const name = entry ? entry[0] : defaultName;
+        if (asar.status(app.asarPath) === 'open') {
+          log('Opting out...');
+          optOut(app.asarPath);
+        }
+        log('Opting in as', name + '...');
+        optIn(app.asarPath, name);
+        log('Rebuild complete. Restart the app.');
+        break;
+      }
+      case '4': case 'pods': {
         const reg = loadRegistry();
         const entry = Object.entries(reg).find(([, v]) => v && sameAsarPath(v.asarPath, app.asarPath));
         if (!entry) { log('App must be opted-in first.'); break; }
@@ -385,7 +424,10 @@ async function interactive() {
   }
 }
 
-module.exports = { optIn, optOut, normalizeName, validateName, discover, resolveApp, pods, getAppPods, assignPod, unassignPod, renameApp, loadRegistry };
+module.exports = {
+  optIn, optOut, normalizeName, validateName, discover, resolveApp,
+  pods, getAppPods, assignPod, unassignPod, renameApp, loadRegistry, sameAsarPath,
+};
 
 if (require.main === module) {
   const args = process.argv.slice(2);

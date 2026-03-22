@@ -1,216 +1,370 @@
-# pods.js — Developer's Guide
+# pods.js (PodBay) — Developer's Guide
 
 ## Summary
 
-`pods.js` is the **plugin packaging and resolution engine**. It manages **pods** — JSON manifest files (`.pod`) that declare which plugins should be loaded into a target application window.
+The PodBay `pods.js` is the **plugin packaging and resolution engine**. It manages pod files (`.pod` JSON manifests), resolves their declared plugins into executable JavaScript, and maps pods to applications.
 
-A pod is a portable, self-contained plugin bundle definition. Instead of hardcoding which plugins get injected, PodBay uses pods as a layer of indirection: each pod declares its plugins, and the broker resolves and assembles the actual JavaScript at injection time. Pods can also be **assigned to apps**, so different Electron applications receive different plugin sets.
+This version enhances the original's resolution engine with **combinable plugin properties**, **auto-registration by type name**, and a **dynamic/lazy-loading** mechanism — making plugins first-class CommonJS modules that can `require()` each other without explicit wiring.
+
+### What Changed from Original
+
+| Aspect | Original `pods.js` | PodBay `pods.js` |
+|--------|--------------------|--------------------|
+| Plugin properties | `code` OR `file` OR `require` (mutually exclusive) | `require` + `file` + `code` are **combinable** — assembled in order |
+| `require` property | Resolves via `require.resolve()` (Node-side file lookup) | Generates **browser-side `require()` calls** (e.g., `var greeting = require('greeting')`) |
+| `file` property | Single path | Accepts **string or array** of file paths |
+| `code` property | Single string | Accepts **string or array** of code strings |
+| `resolve` property | Does not exist | New — uses `require.resolve()` for Node-side path lookup (replaces old `require` behavior) |
+| `id` field | Needed for dynamic resolution | **Optional** for naming — but also enables **dynamic/lazy-loading** when paired with `cache` |
+| `cache` property | Does not exist | New — controls whether files are read at resolve time or deferred |
+| `getAllPluginCode()` | Exists | Removed (not needed in POC) |
+| SDK auto-prepend | Manual | `broker-client-sdk` auto-prepended if missing |
 
 ### Key Concepts
 
-- **Pod**: A `.pod` JSON file containing a name, description, and plugin list. The atomic unit of plugin packaging.
-- **Plugin Resolution**: Each plugin entry can reference code via three strategies — `require` (Node module), `file` (path), or inline `code`.
-- **App-Pod Mapping**: A separate `app-pods.json` file maps application names to assigned pod filenames, enabling per-app plugin configuration.
-- **Dynamic Plugins**: Plugins with an `id` and `cache: false` are resolved at injection time rather than at load time, enabling hot-reload workflows.
+- **Pod**: A `.pod` JSON file — the atomic unit of plugin packaging.
+- **Combinable Properties**: A single plugin entry can have `require` + `file` + `code` all at once; the resolved code is the concatenation in that order.
+- **Type-Based Modules**: Each plugin's `type` name becomes its CommonJS module identifier. `require('greeting')` loads the plugin whose type is `"greeting"`.
+- **Dynamic Plugins**: Plugins with `id` and `cache !== true` defer file reading — only the path is stored, code is loaded later by the broker.
+- **App-Pod Mapping**: `app-pods.json` maps application names to pod filenames.
 
 ```mermaid
 flowchart TD
     subgraph "Pod File (.pod)"
-        P["cwg-debug.pod"]
-        P --> PL1["Plugin: room-id<br/>type: inline code"]
-        P --> PL2["Plugin: broker-client<br/>type: file reference"]
-        P --> PL3["Plugin: greeting<br/>type: require"]
+        P["simple.pod"]
+        P --> PL1["Plugin: broker-client-sdk<br/>file: broker-client-sdk.js"]
+        P --> PL2["Plugin: inline-test<br/>require: [greeting, math-helper]<br/>code: window.__test = ..."]
+        P --> PL3["Plugin: greeting<br/>file: greeting.js"]
     end
 
-    subgraph "Resolution"
-        PL1 -->|"code property"| R1["Raw JS string"]
-        PL2 -->|"fs.readFileSync"| R2["File contents"]
-        PL3 -->|"require.resolve → read"| R3["Module contents"]
+    subgraph "Resolution (Combinable)"
+        PL2 -->|"1. require →"| R1["var greeting = require('greeting');<br/>var math_helper = require('math-helper');"]
+        PL2 -->|"2. code →"| R2["window.__test = ..."]
+        R1 --> JOINED["Combined Code:<br/>require stmts + inline code"]
+        R2 --> JOINED
     end
 
-    subgraph "App Mapping"
-        AM["app-pods.json"] --> |"clubwpt-desktop"| AP["cwg-debug.pod, cwg-action.pod"]
-        AM --> |"another-app"| AP2["example.pod"]
+    subgraph "Module System"
+        PL3 -->|"registered as"| MOD["require('greeting') → exports"]
+        PL1 -->|"registered as"| MOD2["require('broker-client-sdk') → exports"]
     end
 
     style P fill:#1e3a5f,stroke:#4a9eff,color:#fff
-    style AM fill:#3a1e5f,stroke:#9a4aff,color:#fff
+    style JOINED fill:#2d5a1e,stroke:#4aff5e,color:#fff
 ```
 
 ---
 
 ## Detailed Implementation
 
-### Pod File Format
-
-A `.pod` file is JSON with this structure:
+### Pod File Format (Enhanced)
 
 ```json
 {
-  "name": "cwg-debug",
-  "description": "ClubWPT Gold debug tools",
+  "name": "Simple Plugin Test",
+  "description": "Two utility modules + one consumer that requires them",
   "plugins": [
     {
-      "type": "room-id",
-      "description": "Displays the room/table ID on a floating badge",
-      "code": "(function() { ... })();"
-    },
-    {
-      "type": "broker-client-sdk",
-      "file": "plugins/utility/broker-client.js",
-      "description": "Installs PodBayBrokerClient"
+      "type": "inline-test",
+      "description": "Combines require + code properties",
+      "require": ["greeting", "math-helper"],
+      "code": "window.__test_msg = greeting.greet('Inline Plugin');"
     },
     {
       "type": "greeting",
-      "require": "./plugins/greeting",
-      "description": "Registers a greeting tool"
+      "file": "plugins/greeting.js"
     }
   ]
 }
 ```
 
-### CRUD Operations
+#### Plugin Entry Fields
 
-```mermaid
-flowchart LR
-    subgraph "pods.js API"
-        direction TB
-        L["loadPods()"] --> |"reads all .pod files"| DIR["pods/ directory"]
-        G["getPod(file)"] --> |"reads one .pod"| DIR
-        S["savePod(file, pod)"] --> |"writes .pod"| DIR
-        D["deletePod(file)"] --> |"removes .pod"| DIR
-    end
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `type` | string | Yes | Plugin type name — becomes the CommonJS module identifier |
+| `description` | string | No | Human-readable description |
+| `require` | string \| string[] | No | Browser-side `require()` calls to generate |
+| `file` | string \| string[] | No | File paths to read as source code |
+| `code` | string \| string[] | No | Inline JavaScript code |
+| `resolve` | string | No | Node.js `require.resolve()` path (fallback only) |
+| `id` | string | No | Custom module name; also enables dynamic behavior with `cache` |
+| `cache` | boolean | No | If `true`, forces eager file reading even with `id`. Default behavior: `id` present + `cache !== true` = dynamic |
+| `mandatory` | boolean | No | If `true`, failure to load this plugin triggers `transport.fatal()` in the bootstrap |
+| `dashboard` | any | No | Dashboard metadata (passed through to resolved object) |
 
-    style DIR fill:#5a4a1e,stroke:#ffcc4a,color:#fff
+### The Resolution Engine: `resolvePlugins()`
+
+This is the key differentiator from the original. Plugin properties are **assembled in sequence** rather than being mutually exclusive.
+
+#### Dynamic vs Eager Resolution
+
+Before assembling code, the resolver checks if a plugin is **dynamic**:
+
+```js
+const isDynamic = p.id && p.cache !== true;
 ```
 
-| Function | Behavior |
-|----------|----------|
-| `loadPods()` | Reads every `.pod` file in `pods/`, parses JSON, attaches `_file` metadata. Silently skips malformed files with a console error. |
-| `getPod(filename)` | Reads a single pod by filename. Returns `null` if missing or unparseable. |
-| `savePod(filename, pod)` | Writes pod JSON to `pods/`. Strips the internal `_file` property before writing. Creates `pods/` directory if needed. |
-| `deletePod(filename)` | Removes a `.pod` file. Returns `true` on success, `false` if not found. |
-
-### Plugin Resolution Engine
-
-`resolvePlugins()` is the heart of the module. It takes a pod's plugin array and produces resolved plugin objects with actual code content.
+A dynamic plugin has its `filePath` stored but its files are **not read** during resolution. The code remains `null` — the broker loads it later on demand. This is the lazy-loading mechanism.
 
 ```mermaid
 flowchart TD
-    A["resolvePlugins(plugins)"] --> B{"For each plugin"}
-    B --> C{"Has 'code'<br/>property?"}
-    C -->|Yes| D["Use inline code directly"]
-    C -->|No| E{"Has 'file'<br/>property?"}
-    E -->|Yes| F{"Dynamic?<br/>(id && !cache)"}
-    F -->|Yes| G["Store filePath only<br/>(defer read)"]
-    F -->|No| H["fs.readFileSync(file)"]
-    E -->|No| I{"Has 'require'<br/>property?"}
-    I -->|Yes| J["require.resolve → readFileSync"]
-    I -->|No| K["No code source"]
+    A["resolvePlugins(plugins)"] --> B{"For each plugin entry"}
+    B --> DYN{"Dynamic?<br/>id exists AND<br/>cache !== true"}
+    DYN -->|Yes| LAZY["Store filePath only<br/>code stays null"]
+    DYN -->|No| EAGER["Read files + assemble code"]
 
-    D --> L["Resolved Plugin Object"]
-    G --> L
-    H --> L
-    J --> L
-    K --> L
+    subgraph "Eager Resolution"
+        EAGER --> C["Initialize codeParts = []"]
+        C --> D{"Has 'require'?"}
+        D -->|Yes| D1["Generate require() statements<br/>→ append to codeParts"]
+        D -->|No| E
+        D1 --> E{"Has 'file'?"}
+        E -->|Yes| F2["readFileSync each file<br/>→ append to codeParts"]
+        E -->|No| G
+        F2 --> G{"Has 'code'?"}
+        G -->|Yes| G1["Append inline code"]
+        G -->|No| H
+        G1 --> H{"Has 'resolve'?<br/>(no file/code/require)"}
+        H -->|Yes| H1["require.resolve() → readFileSync"]
+        H -->|No| I["Join codeParts with newlines"]
+        H1 --> I
+    end
 
-    style D fill:#2d5a1e,stroke:#4aff5e,color:#fff
-    style H fill:#2d5a1e,stroke:#4aff5e,color:#fff
+    LAZY --> J["Resolved Plugin Object"]
+    I --> J
+
+    style DYN fill:#5a1e3a,stroke:#ff4a9a,color:#fff
+    style LAZY fill:#5a4a1e,stroke:#ffcc4a,color:#fff
     style J fill:#2d5a1e,stroke:#4aff5e,color:#fff
-    style G fill:#5a4a1e,stroke:#ffcc4a,color:#fff
 ```
 
-#### Resolution Strategies
+#### Assembly Order
 
-| Strategy | Source | When Used |
-|----------|--------|-----------|
-| **Inline `code`** | `plugin.code` string | Small, self-contained plugins (e.g., UI badges, one-off scripts) |
-| **`file` path** | `fs.readFileSync(plugin.file)` | Plugins stored as separate `.js` files |
-| **`require` module** | `require.resolve()` → `readFileSync` | Node-style module references (resolved relative to `lib/`) |
+The code parts are assembled in a fixed order that ensures dependencies are declared before usage:
 
-#### Dynamic Plugins
+| Order | Property | What It Generates | Example |
+|-------|----------|-------------------|---------|
+| 1 | `require` | `var <name> = require('<name>');` | `var greeting = require('greeting');` |
+| 2 | `file` | File contents (one or more) | Full plugin JS source |
+| 3 | `code` | Inline code (one or more) | `window.__test = greeting.greet('Hi');` |
+| 4 | `resolve` | Node-resolved file contents | (fallback if no other source) |
 
-When a plugin has both an `id` property and `cache` is not `true`, it is treated as **dynamic**:
-- The file path is stored but the code is **not read** at load time
-- The broker reads the file at injection time, enabling live edits without restarting
-- This powers hot-reload development workflows
+**`resolve`** is only used when `file`, `code`, and `require` are all absent — it serves as the legacy escape hatch for Node-side path resolution.
+
+#### File Path Resolution
+
+Relative file paths are resolved from the **workspace root** (`lib/..`), not the pod file's directory:
+
+```js
+const workspaceRoot = path.join(__dirname, '..');
+const filePath = path.isAbsolute(f) ? f : path.join(workspaceRoot, f);
+```
+
+Absolute paths are used as-is. Only the **first** file path is stored in `result.filePath` — if `file` is an array, subsequent paths are not tracked for debugging.
 
 #### Resolved Plugin Object
 
+Each plugin produces a structured result object:
+
 ```js
 {
-  type: 'broker-client-sdk',     // Plugin type identifier
-  description: '...',             // Human-readable description
-  dashboard: 'dashboard.html',   // Optional dashboard URL
-  id: 'some-id',                 // Optional dynamic plugin ID
-  cache: false,                  // Whether to cache code
-  filePath: 'plugins/util/x.js', // Resolved file path (relative)
-  code: '(function(){...})()',    // Resolved JavaScript code (or null if dynamic)
-  error: null                    // Error message if resolution failed
+  type: 'greeting',           // Plugin type name
+  description: 'Say hello',   // From pod (or undefined)
+  dashboard: null,             // Dashboard metadata (or undefined)
+  id: null,                    // Custom module name (or null)
+  cache: false,                // Cache flag (false if absent)
+  mandatory: false,            // Mandatory flag (false if absent)
+  filePath: 'plugins/greeting.js',  // First file path (or resolved path, or null)
+  code: '...',                 // Assembled code string (or null if dynamic/error)
+  error: null                  // Error message string (or null if success)
 }
 ```
 
-### Aggregation Functions
+#### Error Handling
 
-```mermaid
-flowchart TD
-    A["getAllPluginCode()"] --> B["loadPods()"]
-    B --> C["For each pod → resolvePlugins()"]
-    C --> D["Filter: no errors, has code or dynamic path"]
-    D --> E["Flat array of all resolved plugins"]
+The entire resolution for each plugin is wrapped in a `try/catch`. If file I/O, JSON parsing, or `require.resolve()` throws, the error is **captured in `result.error`** and the plugin is still returned (with `code: null`). Resolution does not throw — callers must check `result.error`.
 
-    F["getPluginCodeForPods(podFiles)"] --> G["For each filename → getPod()"]
-    G --> H["resolvePlugins()"]
-    H --> I["Filter + collect"]
+#### The `require` Property (New Semantics)
 
-    style E fill:#2d5a1e,stroke:#4aff5e,color:#fff
-    style I fill:#2d5a1e,stroke:#4aff5e,color:#fff
+In the original `pods.js`, `require` meant "use Node's `require.resolve()` to find a file." In the PodBay, it means something completely different:
+
+```js
+// Pod entry:
+{ "type": "inline-test", "require": ["greeting", "math-helper"], "code": "..." }
+
+// Generated code:
+var greeting = require('greeting');
+var math_helper = require('math-helper');
+// ... inline code follows ...
 ```
 
-- **`getAllPluginCode()`** — Loads every pod, resolves all plugins, returns the combined flat list. Used when the broker needs to inject everything.
-- **`getPluginCodeForPods(podFiles)`** — Same, but scoped to specific pod filenames. Used when an app has an assigned pod set.
+The property generates **browser-side `require()` calls** that will be executed by the bootstrap's embedded CommonJS polyfill. Module names containing non-identifier characters are sanitized (`-` → `_`, etc.).
 
-### App-Pod Mapping
+This can be a **string** (single require) or **array** (multiple requires).
 
-The `app-pods.json` file maps application names (e.g., `"clubwpt-desktop"`) to arrays of pod filenames:
+#### Array-Valued Properties
+
+Both `file` and `code` accept arrays:
 
 ```json
 {
-  "clubwpt-desktop": ["cwg-debug.pod", "cwg-action.pod"],
-  "another-app": ["example.pod"]
+  "type": "my-plugin",
+  "file": ["plugins/utils.js", "plugins/main.js"],
+  "code": ["console.log('loaded');", "window.__ready = true;"]
+}
+```
+
+All entries are read/appended in order.
+
+### Auto-Registration by Type Name
+
+```mermaid
+flowchart LR
+    POD["Pod declares<br/>type: 'greeting'"] --> RESOLVE["resolvePlugins()"]
+    RESOLVE --> INJECT["Broker injects plugins"]
+    INJECT --> REG["__podbayPlugins['greeting'] = code"]
+    REG --> REQ["require('greeting')<br/>→ module.exports"]
+
+    style REG fill:#5a4a1e,stroke:#ffcc4a,color:#fff
+    style REQ fill:#2d5a1e,stroke:#4aff5e,color:#fff
+```
+
+Every plugin is automatically registered by its `type` name in the bootstrap's `__podbayPlugins` registry. The `id` field is only needed if you want a module name different from the type.
+
+This means a plugin declared as `{ "type": "greeting", "file": "plugins/greeting.js" }` is automatically available as `require('greeting')` to any other plugin.
+
+### Plugin Aggregation: `getPluginCodeForPods()`
+
+This function takes an array of pod filenames, resolves all their plugins, and returns an aggregated list.
+
+#### Auto-Prepend: `broker-client-sdk`
+
+Every pod that does **not** explicitly list a plugin with `type: 'broker-client-sdk'` gets one auto-prepended:
+
+```js
+if (!hasSdk) {
+  plugins = [
+    { type: 'broker-client-sdk', file: 'plugins/broker-client-sdk.js' },
+    ...plugins
+  ];
+}
+```
+
+This is a hidden dependency — even pods that don't declare it will receive the SDK as their first plugin.
+
+#### Plugin Filtering
+
+After resolving, plugins are included in the output only if they meet one of these criteria:
+
+| Condition | Included? | Why |
+|-----------|-----------|-----|
+| `code` is non-null | Yes | Has assembled source code |
+| `error` is non-null | Yes | Error needs to be reported to the client |
+| Dynamic (`id && !cache`) with `filePath` | Yes | Will be loaded later by the broker |
+| None of the above | **No** | Silently excluded |
+
+```mermaid
+flowchart TD
+    R["Resolved plugin"] --> C1{"Has code?"}
+    C1 -->|Yes| INC["Include in output"]
+    C1 -->|No| C2{"Has error?"}
+    C2 -->|Yes| INC
+    C2 -->|No| C3{"Dynamic with filePath?"}
+    C3 -->|Yes| INC
+    C3 -->|No| SKIP["Silently excluded"]
+
+    style INC fill:#2d5a1e,stroke:#4aff5e,color:#fff
+    style SKIP fill:#5a1e1e,stroke:#ff4a4a,color:#fff
+```
+
+### CRUD Operations
+
+All CRUD functions operate on `.pod` JSON files in the `pods/` directory (`PODS_DIR = path.join(__dirname, '..', 'pods')`).
+
+#### `loadPods()`
+
+- Returns `[]` if the `pods/` directory doesn't exist
+- Filters to `.pod` files only
+- Parses each file as JSON and **adds a `_file` property** with the filename
+- Logs parse errors but continues — returns partial results on individual file failures
+- Returns an array of pod objects, each with `_file` attached
+
+#### `getPod(filename)`
+
+- Reads and parses a single pod file
+- **Adds `_file` property** with the filename
+- Returns `null` on any error (file not found, parse error) — no distinction between error types
+
+#### `savePod(filename, pod)`
+
+- **Strips the `_file` property** before writing (to keep saved files clean)
+- Creates `pods/` directory if it doesn't exist (`{ recursive: true }`)
+- Pretty-prints with 2-space indent
+- Throws on write failure (no error handling)
+
+#### `deletePod(filename)`
+
+- Returns `false` if the file doesn't exist
+- Returns `true` on successful deletion
+- Throws on permission errors
+
+### App-Pod Mapping
+
+The `app-pods.json` file maps application names (from `discover.js`) to arrays of pod filenames:
+
+```json
+{
+  "clubwpt-desktop": ["cwg-plugin-library.pod", "cwg-action.pod"],
+  "some-other-app": ["example.pod"]
 }
 ```
 
 ```mermaid
 flowchart LR
-    subgraph "App-Pod API"
-        LA["loadAppPods()"] --> JSON["app-pods.json"]
-        SA["saveAppPods(mapping)"] --> JSON
-        GA["getAppPods(name)"] --> |"returns pod list"| JSON
-        AS["assignPod(name, pod)"] --> |"adds pod to app"| JSON
-        UA["unassignPod(name, pod)"] --> |"removes pod from app"| JSON
-        RA["renameAppPods(old, new)"] --> |"renames app key"| JSON
+    subgraph "app-pods.json"
+        MAP["clubwpt-desktop → [cwg-plugin-library.pod, cwg-action.pod]"]
     end
 
-    style JSON fill:#3a1e5f,stroke:#9a4aff,color:#fff
+    APP["discover.js<br/>finds 'clubwpt-desktop'"] --> GET["getAppPods('clubwpt-desktop')"]
+    GET --> MAP
+    MAP --> PODS["Load + resolve both pods"]
+    PODS --> PLUGINS["Aggregated plugin list"]
+
+    style MAP fill:#5a4a1e,stroke:#ffcc4a,color:#fff
+    style PLUGINS fill:#2d5a1e,stroke:#4aff5e,color:#fff
 ```
 
-| Function | Behavior |
-|----------|----------|
-| `loadAppPods()` | Parse `app-pods.json`. Returns `{}` on any error (missing file, bad JSON). |
-| `saveAppPods(mapping)` | Write the full mapping object. Creates `pods/` if needed. |
-| `getAppPods(name)` | Get pod filenames for an app. Returns `[]` if unmapped. |
-| `assignPod(name, podFile)` | Add a pod to an app's list (no duplicates). |
-| `unassignPod(name, podFile)` | Remove a pod. Deletes the app key entirely if its list becomes empty. |
-| `renameAppPods(oldName, newName)` | Move an app's pod assignments to a new key. |
+#### `getAppPods(name)` (exported)
+- Returns `[]` if `name` is falsy or app not found
+- Returns the array of pod filenames for the given app
+
+#### `assignPod(name, podFile)` (exported)
+- Creates the app entry if it doesn't exist
+- Prevents duplicates (checks with `.includes()` before pushing)
+- Saves `app-pods.json` after modification
+
+#### `unassignPod(name, podFile)` (exported)
+- Removes the pod from the app's list
+- **Deletes the app entry entirely** if the list becomes empty
+- Silent no-op if the app doesn't exist
+
+#### `renameAppPods(oldName, newName)` (exported)
+- Renames only the **key** in `app-pods.json` — does **not** rename any pod files
+- Silent no-op if `oldName` doesn't exist
+
+#### `loadAppPods()` / `saveAppPods()` (internal only)
+- `loadAppPods()` returns `{}` on any error (file not found, parse error)
+- `saveAppPods()` creates `pods/` directory if needed, writes JSON with trailing newline
+- Neither is exported — used internally by the mapping functions
 
 ### Exports
 
 | Export | Category |
 |--------|----------|
 | `loadPods`, `getPod`, `savePod`, `deletePod` | Pod CRUD |
-| `resolvePlugins` | Plugin resolution |
-| `getAllPluginCode`, `getPluginCodeForPods` | Plugin aggregation |
-| `loadAppPods`, `saveAppPods`, `getAppPods` | App mapping reads |
-| `assignPod`, `unassignPod`, `renameAppPods` | App mapping writes |
-| `PODS_DIR` | Base directory path constant |
+| `resolvePlugins` | Plugin resolution (enhanced) |
+| `getPluginCodeForPods` | Plugin aggregation (with SDK auto-prepend) |
+| `getAppPods`, `assignPod`, `unassignPod`, `renameAppPods` | App mapping |
+
+Not exported: `loadAppPods`, `saveAppPods` (internal), `PODS_DIR` (internal constant).

@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ClubWPT Login Plugin Test</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f5f5;
+      padding: 40px;
+    }
+    .w-screen.h-screen.d-flex.d-row.align-center.justify-center.cusLoginStyle {
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      width: 100%;
+    }
+    .d-flex.flex-column.justify-space-between.bg-surfaceElevation1 {
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      background: white;
+      padding: 40px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      min-height: 50vh;
+      width: 100%;
+      max-width: 500px;
+    }
+    h1 {
+      font-size: 24px;
+      margin-bottom: 20px;
+      color: #333;
+    }
+    .form-group {
+      margin-bottom: 20px;
+    }
+    label {
+      display: block;
+      margin-bottom: 8px;
+      color: #666;
+      font-size: 14px;
+    }
+    #input-0 {
+      width: 100%;
+      padding: 12px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 16px;
+      font-family: inherit;
+    }
+    #input-0:focus {
+      outline: none;
+      border-color: #0066cc;
+      box-shadow: 0 0 0 3px rgba(0, 102, 204, 0.1);
+    }
+    .v-row.d-flex.justify-center.mt-10 {
+      display: flex;
+      justify-content: center;
+      margin-top: 40px;
+    }
+    form a button {
+      padding: 12px 32px;
+      background: #0066cc;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 16px;
+      cursor: pointer;
+      transition: background 0.2s;
+      font-weight: 600;
+    }
+    form a button:hover {
+      background: #0052a3;
+    }
+    form a button:active {
+      background: #003d7a;
+    }
+    .test-controls {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      max-width: 300px;
+    }
+    .test-controls h3 {
+      margin-bottom: 12px;
+      font-size: 14px;
+      color: #333;
+    }
+    .test-controls button {
+      width: 100%;
+      padding: 8px;
+      margin-bottom: 8px;
+      background: #0066cc;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+    .test-controls button:last-child {
+      margin-bottom: 0;
+    }
+    .log-output {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background: #1e1e1e;
+      color: #d4d4d4;
+      padding: 12px;
+      border-radius: 4px;
+      font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+      font-size: 11px;
+      max-width: 400px;
+      max-height: 200px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+    .status-success {
+      color: #4ec9b0;
+    }
+    .status-error {
+      color: #f48771;
+    }
+  </style>
+</head>
+<body>
+  <div class="w-screen h-screen d-flex d-row align-center justify-center cusLoginStyle">
+    <div class="h-100 d-flex flex-column justify-space-between bg-surfaceElevation1">
+      <div>
+        <h1>ClubWPT Login</h1>
+        <p style="color: #666; margin-bottom: 30px;">Enter your phone number to log in</p>
+      </div>
+
+      <div class="form-group">
+        <label for="input-0">Phone Number</label>
+        <input type="text" id="input-0" placeholder="Enter your phone number" />
+      </div>
+
+      <div class="v-row d-flex justify-center mt-10">
+        <form>
+          <a href="#">
+            <button type="button">Continue with Phone</button>
+          </a>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="test-controls">
+    <h3>🧪 Plugin Test Controls</h3>
+    <button onclick="resetForm()">Reset Form</button>
+    <button onclick="runLogin()">Run Login Plugin</button>
+    <button onclick="clearLog()">Clear Log</button>
+  </div>
+
+  <div class="log-output" id="logOutput"></div>
+
+  <script>
+    // ═══════════════════════════════════════════════════════════════
+    // Logging system for test output
+    // ═══════════════════════════════════════════════════════════════
+    var originalLog = console.log;
+    var originalError = console.error;
+    var logBuffer = [];
+
+    function appendLog(message, type = 'log') {
+      var logEl = document.getElementById('logOutput');
+      var timestamp = new Date().toLocaleTimeString();
+      var formattedMsg = '[' + timestamp + '] ' + message;
+
+      logBuffer.push(formattedMsg);
+      if (logBuffer.length > 30) logBuffer.shift();
+
+      logEl.textContent = logBuffer.join('\n');
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    console.log = function() {
+      var msg = Array.from(arguments).join(' ');
+      appendLog(msg, 'log');
+      originalLog.apply(console, arguments);
+    };
+
+    console.error = function() {
+      var msg = Array.from(arguments).join(' ');
+      appendLog(msg, 'error');
+      originalError.apply(console, arguments);
+    };
+
+    function clearLog() {
+      document.getElementById('logOutput').textContent = '';
+      logBuffer = [];
+    }
+
+    function resetForm() {
+      document.getElementById('input-0').value = '';
+      clearLog();
+      console.log('Form reset');
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // ClubWPT Login Plugin (inline for testing)
+    // ═══════════════════════════════════════════════════════════════
+    var PHONE_NUMBER = '8184450634';
+    var PHONE_INPUT_SELECTOR = '#input-0';
+    var PHONE_BUTTON_SELECTOR = '#app > div > div > main > div.w-screen.h-screen.d-flex.d-row.align-center.justify-center.cusLoginStyle > div > div.h-100.d-flex.flex-column.justify-space-between.bg-surfaceElevation1 > div:nth-child(2) > div > div.v-row.d-flex.justify-center.mt-10 > form > a > button';
+
+    function login() {
+      console.log('[ClubWPT Login] Starting login automation...');
+
+      try {
+        // Step 1: Find and clear the phone input field
+        var phoneInput = document.querySelector(PHONE_INPUT_SELECTOR);
+        if (!phoneInput) {
+          console.error('[ClubWPT Login] Phone input field not found');
+          return false;
+        }
+        console.log('[ClubWPT Login] Found phone input field');
+        phoneInput.value = '';
+        phoneInput.dispatchEvent(new Event('input', { bubbles: true }));
+        phoneInput.dispatchEvent(new Event('change', { bubbles: true }));
+        console.log('[ClubWPT Login] Cleared phone input field');
+
+        // Step 2: Input the phone number
+        phoneInput.focus();
+        phoneInput.value = PHONE_NUMBER;
+        phoneInput.dispatchEvent(new Event('input', { bubbles: true }));
+        phoneInput.dispatchEvent(new Event('change', { bubbles: true }));
+        console.log('[ClubWPT Login] Entered phone number: ' + PHONE_NUMBER);
+
+        // Step 3: Find and click the phone button
+        // On this test page, the selector won't match exactly, so let's use the actual button
+        var phoneButton = document.querySelector('form a button');
+        if (!phoneButton) {
+          console.error('[ClubWPT Login] Phone button not found');
+          return false;
+        }
+        console.log('[ClubWPT Login] Found phone button');
+        phoneButton.click();
+        console.log('[ClubWPT Login] Clicked phone button');
+
+        console.log('[ClubWPT Login] ✅ Login automation completed successfully');
+        return true;
+      } catch (e) {
+        console.error('[ClubWPT Login] ❌ Login automation failed: ' + e.message);
+        return false;
+      }
+    }
+
+    function runLogin() {
+      clearLog();
+      console.log('Running login plugin...');
+      login();
+    }
+
+    // Auto-run on load for demo
+    console.log('ClubWPT Login Plugin Test Page Loaded');
+    console.log('Click "Run Login Plugin" to test');
+  </script>
+</body>
+</html>

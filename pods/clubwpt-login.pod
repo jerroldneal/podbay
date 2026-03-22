@@ -1,0 +1,10 @@
+{
+  "name": "clubwpt-login-pod",
+  "description": "Pod for ClubWPT login automation — auto-fills phone number and clicks login",
+  "plugins": [
+    {
+      "type": "clubwpt-login",
+      "file": "plugins/clubwpt/login.js"
+    }
+  ]
+}

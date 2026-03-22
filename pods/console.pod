@@ -4,17 +4,17 @@
   "plugins": [
     {
       "type": "broker-client-sdk",
-      "file": "lib/broker-client.js",
+      "file": "plugins/broker-client-sdk.js",
       "description": "Installs window.PodBayBrokerClient for plugin tool publishing"
     },
     {
       "type": "bridge",
-      "file": "lib/bridge.js",
+      "file": "plugins/bridge.js",
       "description": "Installs window.PodBayBridge — broker bridge factory with addTool/notify API"
     },
     {
       "type": "hook",
-      "file": "lib/hook.js",
+      "file": "plugins/hook.js",
       "description": "Installs window.PodBayHook — generalized method interception utility"
     },
     {
@@ -28,7 +28,7 @@
       "description": "Installs window.PodBayTableWatcher — Cocos2d scene graph poker table state extraction (tables only)"
     },
     {
-      "type": "action-buttons",
+      "type": "cwg-action",
       "file": "plugins/cwg-action.js",
       "description": "Registers fold/call/check/raise/allin tools that click Cocos2d poker buttons via scene graph traversal and cc.Button._releaseAction()"
     },

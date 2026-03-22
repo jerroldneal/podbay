@@ -1,21 +1,26 @@
 {
-  "name": "examplex",
-  "description": "Example pod demonstrating broker client SDK usage",
+  "name": "CJS Example Pod",
+  "description": "Demonstrates CommonJS plugin composition — plugins require each other by type name without id fields",
   "plugins": [
     {
-      "type": "universal-require",
-      "file": "plugins/utility/universal-require.js",
-      "description": "Provides window.require() for CommonJS module loading"
-    },
-    {
       "type": "broker-client-sdk",
-      "file": "plugins/utility/broker-client.js",
+      "file": "plugins/broker-client-sdk.js",
       "description": "Installs window.PodBayBrokerClient for plugin tool publishing"
     },
     {
       "type": "greeting",
-      "file": "plugins/utility/greeting.js",
-      "description": "Registers a greeting tool with the MCP broker via the SDK (from external file)"
+      "file": "plugins/greeting.js",
+      "description": "Greeting module — requireable as require('greeting')"
+    },
+    {
+      "type": "math-helper",
+      "file": "plugins/math-helper.js",
+      "description": "Math utilities — requireable as require('math-helper')"
+    },
+    {
+      "type": "demo-app",
+      "file": "plugins/demo-app.js",
+      "description": "Demo app that requires greeting and math-helper by name"
     }
   ]
 }

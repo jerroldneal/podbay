@@ -2,17 +2,20 @@
 'use strict';
 
 /**
- * PodBay Reverse Client — publishes all PodBay operations as MCP tools
- * on the broker via WebSocket. Runs as a long-lived process.
+ * PodBay Reverse Client — publishes PodBay operations as MCP tools
+ * on the broker via WebSocket.
  *
- * Usage:
- *   node reverse-client.js                           # default ws://localhost:3099
- *   node reverse-client.js --url ws://myhost:3099    # custom broker URL
+ * KEY DIFFERENCE from original: The inject handler auto-registers every
+ * plugin by its `type` name in window.__podbayPlugins, so plugins are
+ * requireable by name without manual `id` fields in pod specs.
+ *
+ * Also: universal-require is NOT included in the bundle — it's embedded
+ * in the bootstrap payload, so require() is already available.
  */
 
 const WebSocket = require('ws');
 const http = require('http');
-const { optIn, optOut, normalizeName, validateName, discover, resolveApp, pods, getAppPods, assignPod, unassignPod, renameApp, loadRegistry } = require('./index');
+const { optIn, optOut, normalizeName, validateName, discover, resolveApp, pods, getAppPods, assignPod, unassignPod, renameApp, loadRegistry, sameAsarPath } = require('./index');
 const asar = require('./lib/asar');
 
 const TAG = '[PodBay RC]';
@@ -21,22 +24,16 @@ const PLUGIN_URL_BASE = (process.env.PODBAY_PLUGIN_URL_BASE || 'http://localhost
 const CLIENT_ID = 'podbay';
 const RECONNECT_MS = 3000;
 const MAX_RECONNECT_MS = 30000;
-const SWEEP_DELAY_MS = 2000; // delay before initial sweep after registration
-const POLL_INTERVAL_MS = 5000; // poll broker for new clients
+const SWEEP_DELAY_MS = 2000;
+const POLL_INTERVAL_MS = 5000;
 
-let activeWs = null;  // current WebSocket, set on connect
-const _pushedClients = new Set(); // track clients we've already pushed to
-let _pollTimer = null; // client poll timer
-let _lastSweepError = null; // deduplicate repeated sweep errors
+let activeWs = null;
+const _pushedClients = new Set();
+let _pollTimer = null;
+let _lastSweepError = null;
 
 function log(...args) { process.stderr.write(TAG + ' ' + args.join(' ') + '\n'); }
 
-/**
- * Send a push-activity notification through the broker WS.
- * The dashboard picks these up and displays them in the Push Activity log.
- * @param {'push-attempt'|'push-success'|'push-fail'|'push-skip'|'sweep-start'|'sweep-done'|'sweep-error'} event
- * @param {object} detail
- */
 function notifyPush(event, detail) {
   if (!activeWs || activeWs.readyState !== 1) return;
   activeWs.send(JSON.stringify({
@@ -50,13 +47,6 @@ function notifyPush(event, detail) {
   }));
 }
 
-/**
- * Send an MCP-standard notifications/progress message via WS.
- * @param {string} callId - The tool_call callId (used as progressToken)
- * @param {number} progress - Current step (1-based)
- * @param {number} total - Total steps
- * @param {string} [message] - Human-readable step label
- */
 function sendProgress(callId, progress, total, message) {
   if (!activeWs || activeWs.readyState !== 1) return;
   activeWs.send(JSON.stringify({
@@ -79,9 +69,8 @@ const tools = [
       const apps = discover();
       const reg = loadRegistry();
       return apps.map((a, i) => {
-        const entry = Object.entries(reg).find(([, v]) => v.asarPath === a.asarPath);
+        const entry = Object.entries(reg).find(([, v]) => v && sameAsarPath(v.asarPath, a.asarPath));
         const regName = entry ? entry[0] : null;
-        // Check pods by registered name, then by directory name (pod assignment is independent of opt-in)
         const appPods = getAppPods(regName) || [];
         const dirPods = regName ? [] : (getAppPods(normalizeName(a.name)) || []);
         return {
@@ -97,12 +86,12 @@ const tools = [
   },
   {
     name: 'opt_in',
-    description: 'Opt-in an Electron app — inject bootstrap for broker-driven plugin delivery. Name defaults to normalized app directory name.',
+    description: 'Opt-in an Electron app — inject bootstrap for broker-driven plugin delivery',
     inputSchema: {
       type: 'object',
       properties: {
         app: { type: 'string', description: 'App name or 1-based index' },
-        name: { type: 'string', description: 'Client name for broker registration (lowercase alphanumeric + hyphens). Defaults to normalized app name.' },
+        name: { type: 'string', description: 'Client name for broker registration' },
       },
       required: ['app'],
     },
@@ -150,7 +139,7 @@ const tools = [
       const app = resolveApp(apps, nameOrIndex);
       if (!app) return { error: 'App not found: ' + nameOrIndex };
       const reg = loadRegistry();
-      const entry = Object.entries(reg).find(([, v]) => v.asarPath === app.asarPath);
+      const entry = Object.entries(reg).find(([, v]) => v && sameAsarPath(v.asarPath, app.asarPath));
       const regName = entry ? entry[0] : null;
       const appPods = getAppPods(regName) || [];
       const dirPods = regName ? [] : (getAppPods(normalizeName(app.name)) || []);
@@ -165,7 +154,7 @@ const tools = [
   },
   {
     name: 'rename',
-    description: 'Rename an opted-in app (change its registered broker name)',
+    description: 'Rename an opted-in app',
     inputSchema: {
       type: 'object',
       properties: {
@@ -179,10 +168,35 @@ const tools = [
       return { oldName, newName, status: 'renamed' };
     },
   },
-  // ── Injection tool (system plugin calls this) ────────────────────────
+  {
+    name: 'rebuild',
+    description: 'Rebuild an opted-in app (opt-out + opt-in) to refresh the bootstrap',
+    inputSchema: {
+      type: 'object',
+      properties: { app: { type: 'string', description: 'App name or 1-based index' } },
+      required: ['app'],
+    },
+    handler: ({ app: nameOrIndex }, callId) => {
+      const apps = discover();
+      const app = resolveApp(apps, nameOrIndex);
+      if (!app) return { error: 'App not found: ' + nameOrIndex };
+      const reg = loadRegistry();
+      const entry = Object.entries(reg).find(([, v]) => v && sameAsarPath(v.asarPath, app.asarPath));
+      const name = entry ? entry[0] : normalizeName(app.name);
+      if (asar.status(app.asarPath) === 'open') {
+        sendProgress(callId, 1, 3, 'opt-out');
+        optOut(app.asarPath);
+      }
+      sendProgress(callId, 2, 3, 'opt-in');
+      optIn(app.asarPath, name);
+      sendProgress(callId, 3, 3, 'done');
+      return { name, app: app.name, status: 'rebuilt' };
+    },
+  },
+  // ── Injection tool — THE KEY CHANGE: __podbayPlugins auto-registration ──
   {
     name: 'inject',
-    description: 'Return combined injection bundle for an opted-in target. Called automatically when a bootstrap client connects, or manually for re-injection.',
+    description: 'Return combined injection bundle for an opted-in target withJS plugin registry',
     inputSchema: {
       type: 'object',
       properties: {
@@ -197,7 +211,6 @@ const tools = [
     handler: (meta) => {
       log('Inject request from:', meta.clientId || 'unknown', '—', meta.url || 'no-url');
 
-      // Look up which pods are assigned to this client
       const appPods = getAppPods(meta.clientId || '');
 
       if (!appPods.length) {
@@ -205,24 +218,56 @@ const tools = [
         return { code: null, plugins: 0, codeLength: 0, pods: [] };
       }
 
-      // Resolve plugin code only from assigned pods
       const allPlugins = pods.getPluginCodeForPods(appPods);
       if (!allPlugins.length) {
         return { code: null, plugins: 0, codeLength: 0, pods: appPods };
       }
 
-      // Combine all plugin code into a single injectable bundle.
-      // Each plugin is wrapped in its own IIFE + try-catch so that:
-      //   - a top-level `return` guard inside a plugin only exits that plugin's wrapper
-      //   - an uncaught exception in one plugin doesn't prevent subsequent plugins from running
-      // id + cache:true  → inline code + pre-register in require.cache
-      // id + cache:false → register URL in __podbayModuleUrls; fetched dynamically at require() time
-      // no id            → plain IIFE
-      const parts = allPlugins.map(p => {
+      // ════════════════════════════════════════════════════════════════
+      // Build the injection bundle with __podbayPlugins registry
+      // ════════════════════════════════════════════════════════════════
+      //
+      // Step 1: Emit the __podbayPlugins registration block FIRST.
+      //   Every plugin with code gets registered by its `type` name,
+      //   making it requireable as require('type-name').
+      //
+      // Step 2: Then emit execution blocks for each plugin — same as
+      //   before (IIFE wraps, id+cache, id+filePath modes), BUT now
+      //   plugins that use module.exports
+      //   DON'T need an execution IIFE — they'll be loaded on-demand
+      //   via require(). Only "fire-and-forget" plugins get IIFEs.
+      //
+      // NOTE: require() is already available from the bootstrap.
+      //   No need to include universal-require in the bundle.
+
+      const parts = [];
+
+      // ── Telemetry: Execution start beacon ────────────────────────
+      parts.push('console.log("[PodBay Bundle] ▶ Execution started —", ' + allPlugins.length + ', "plugins");');
+
+      // ── Step 1: Plugin registry ──────────────────────────────────
+      // Register ALL plugins by type name in __podbayPlugins.
+      // This is the KEY addition over the original podbay.
+      const registryLines = ['// [PodBay] Plugin Registry — auto-registered by type name'];
+      registryLines.push('window.__podbayPlugins = window.__podbayPlugins || {};');
+      for (const p of allPlugins) {
+        if (!p.code) continue; // dynamic-only plugins don't have inline code
+        const safeName = (p.type || 'unknown').replace(/'/g, "\\'");
+        const escaped = p.code.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n').replace(/\r/g, '\\r');
+        registryLines.push("window.__podbayPlugins['" + safeName + "'] = '" + escaped + "';");
+      }
+      parts.push(registryLines.join('\n'));
+
+      // ── Step 2: Plugin execution blocks ──────────────────────────
+      // Each plugin is wrapped in its own IIFE + try-catch.
+      // The id+cache and id+filePath modes also work as before for
+      // backwards compatibility with existing pod specs.
+      for (const p of allPlugins) {
         const header = '// [PodBay] plugin: ' + (p.type || 'unknown') + ' — ' + (p.description || '');
         let body;
+
         if (p.id && p.cache) {
-          // Inline mode: pre-register source in require.cache via PodBay Require
+          // Inline mode: also pre-register in require.cache
           const safeId = p.id.replace(/'/g, "\\'");
           const escaped = p.code.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n').replace(/\r/g, '\\r');
           body = 'try { (function () {\n'
@@ -230,7 +275,7 @@ const tools = [
             + '})(); }'
             + ' catch (__e) { console.error("[PodBay] lib error [' + (p.type || 'unknown') + ']:", __e && __e.message); }';
         } else if (p.id && p.filePath) {
-          // Dynamic mode: register serve URL; module fetched on first require(id)
+          // Dynamic mode: register URL for on-demand fetch
           const safeId = p.id.replace(/'/g, "\\'");
           const safeUrl = (PLUGIN_URL_BASE + '/' + p.filePath).replace(/'/g, "\\'");
           body = 'try { (function () {\n'
@@ -239,12 +284,18 @@ const tools = [
             + '})(); }'
             + ' catch (__e) { console.error("[PodBay] url-reg error [' + (p.type || 'unknown') + ']:", __e && __e.message); }';
         } else {
-          // Plain plugin: fire-and-forget IIFE
-          body = 'try { (function () {\n' + p.code + '\n})(); }'
+          // Execution via require() — provides module/exports context
+          const safeName = (p.type || 'unknown').replace(/'/g, "\\'");
+          body = 'try { window.require(\'' + safeName + '\'); }'
             + ' catch (__e) { console.error("[PodBay] plugin error [' + (p.type || 'unknown') + ']:", __e && __e.message); }';
         }
-        return header + '\n' + body;
-      });
+        parts.push(header + '\n' + body);
+      }
+
+      // ── Telemetry: Execution end beacon ──────────────────────────
+      parts.push('console.log("[PodBay Bundle] ✓ All", ' + allPlugins.length + ', "plugins processed. Registry:", window.__podbayPlugins ? Object.keys(window.__podbayPlugins).join(", ") : "NONE");');
+      parts.push('console.log("[PodBay Bundle] require stats:", window.require && window.require.stats ? JSON.stringify(window.require.stats()) : "require not available");');
+
       const bundle = parts.join('\n\n');
 
       log('Bundle built:', allPlugins.length, 'plugins,', bundle.length, 'chars from', appPods.join(', '));
@@ -261,7 +312,7 @@ const tools = [
   // ── Pod management tools ─────────────────────────────────────────────
   {
     name: 'pods_list',
-    description: 'List all .pod files from the pods directory',
+    description: 'List all .pod files',
     inputSchema: { type: 'object', properties: {} },
     handler: () => pods.loadPods(),
   },
@@ -270,7 +321,7 @@ const tools = [
     description: 'Get a single pod by filename',
     inputSchema: {
       type: 'object',
-      properties: { filename: { type: 'string', description: 'Pod filename (e.g. my-pod.pod)' } },
+      properties: { filename: { type: 'string', description: 'Pod filename' } },
       required: ['filename'],
     },
     handler: ({ filename }) => {
@@ -285,8 +336,8 @@ const tools = [
     inputSchema: {
       type: 'object',
       properties: {
-        filename: { type: 'string', description: 'Pod filename (e.g. my-pod.pod)' },
-        pod: { type: 'object', description: 'Pod object with name, description, and plugins array' },
+        filename: { type: 'string', description: 'Pod filename' },
+        pod: { type: 'object', description: 'Pod object' },
       },
       required: ['filename', 'pod'],
     },
@@ -301,7 +352,7 @@ const tools = [
     description: 'Delete a .pod file',
     inputSchema: {
       type: 'object',
-      properties: { filename: { type: 'string', description: 'Pod filename to delete' } },
+      properties: { filename: { type: 'string', description: 'Pod filename' } },
       required: ['filename'],
     },
     handler: ({ filename }) => {
@@ -311,7 +362,7 @@ const tools = [
   },
   {
     name: 'pods_resolve',
-    description: 'Resolve all plugin code from all pods (preview what would be injected)',
+    description: 'Resolve all plugin code from all pods (preview)',
     inputSchema: { type: 'object', properties: {} },
     handler: () => {
       const allPods = pods.loadPods();
@@ -321,7 +372,6 @@ const tools = [
         plugins: pods.resolvePlugins(p.plugins).map(r => ({
           type: r.type,
           description: r.description,
-          dashboard: r.dashboard,
           hasCode: !!r.code,
           codeLength: r.code ? r.code.length : 0,
           error: r.error,
@@ -329,15 +379,14 @@ const tools = [
       }));
     },
   },
-  // ── Pod-to-app assignment tools ──────────────────────────────────────
   {
     name: 'pods_assign',
-    description: 'Assign a .pod file to an app by name',
+    description: 'Assign a .pod file to an app',
     inputSchema: {
       type: 'object',
       properties: {
-        name: { type: 'string', description: 'App name (e.g. "clubwpt-desktop")' },
-        pod: { type: 'string', description: 'Pod filename (e.g. "cwg-debug.pod")' },
+        name: { type: 'string', description: 'App name' },
+        pod: { type: 'string', description: 'Pod filename' },
       },
       required: ['name', 'pod'],
     },
@@ -357,8 +406,8 @@ const tools = [
     inputSchema: {
       type: 'object',
       properties: {
-        name: { type: 'string', description: 'App name (e.g. "clubwpt-desktop")' },
-        pod: { type: 'string', description: 'Pod filename to unassign' },
+        name: { type: 'string', description: 'App name' },
+        pod: { type: 'string', description: 'Pod filename' },
       },
       required: ['name', 'pod'],
     },
@@ -384,17 +433,41 @@ const tools = [
       return { app: name, pods: appPodsList };
     },
   },
+  // ── Pull model: bootstrap calls this to get its plugins ──────────────
+  {
+    name: 'plugins',
+    description: 'Get resolved plugin list for a client (pull model — returns individual plugins, not bundled)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        clientId: { type: 'string', description: 'Requesting client ID' },
+      },
+      required: ['clientId'],
+    },
+    handler: ({ clientId: cid }) => {
+      const appPods = getAppPods(cid || '');
+      if (!appPods.length) {
+        log('plugins: no pods for', cid);
+        return { plugins: [], pods: [] };
+      }
+      const allPlugins = pods.getPluginCodeForPods(appPods);
+      log('plugins:', allPlugins.length, 'plugins for', cid, 'from', appPods.join(', '));
+      return {
+        pods: appPods,
+        plugins: allPlugins.map(p => ({
+          type: p.type || null,
+          description: p.description || '',
+          code: p.code || null,
+        })),
+      };
+    },
+  },
 ];
 
 // ── Auto-push helpers ─────────────────────────────────────────────────────────
 
-/**
- * Push pod plugins to a single client if it has assigned pods.
- * @param {WebSocket} ws - active WS connection
- * @param {string} clientId - target client
- */
 function pushToClient(ws, clientId) {
-  if (!clientId || clientId === CLIENT_ID) return; // ignore self
+  if (!clientId || clientId === CLIENT_ID) return;
   const appPods = getAppPods(clientId);
   if (!appPods.length) {
     notifyPush('push-skip', { clientId, reason: 'No pods assigned' });
@@ -409,40 +482,51 @@ function pushToClient(ws, clientId) {
     const bundle = injectTool.handler({ clientId });
     if (!bundle || !bundle.code) {
       log('No injectable code for', clientId);
-      notifyPush('push-fail', { clientId, error: 'No injectable code produced', pods: appPods });
+      notifyPush('push-fail', { clientId, error: 'No injectable code', pods: appPods });
       return;
     }
 
+    const pushCallId = 'push-' + Date.now();
+    const verifyCallId = 'verify-' + Date.now();
+
+    // Track pending verification
+    if (!pushToClient._pending) pushToClient._pending = {};
+    pushToClient._pending[pushCallId] = { clientId, plugins: bundle.plugins, codeLength: bundle.codeLength, pods: appPods };
+    pushToClient._pending[verifyCallId] = { clientId, type: 'verify' };
+
+    // Step 1: Push the bundle
     ws.send(JSON.stringify({
       type: 'call_tool',
-      callId: 'auto-push-' + Date.now(),
+      callId: pushCallId,
       tool: clientId + '__execute',
       arguments: { code: bundle.code, useIIFE: false },
     }));
     log('Pushed', bundle.plugins, 'plugins to', clientId, '(' + bundle.codeLength + ' chars)');
-    notifyPush('push-success', { clientId, plugins: bundle.plugins, codeLength: bundle.codeLength, pods: appPods });
+
+    // Step 2: Immediately request verification via info tool
+    ws.send(JSON.stringify({
+      type: 'call_tool',
+      callId: verifyCallId,
+      tool: clientId + '__info',
+      arguments: {},
+    }));
+    log('Verification request sent to', clientId);
+
+    notifyPush('push-sent', { clientId, plugins: bundle.plugins, codeLength: bundle.codeLength, pods: appPods, awaitingVerification: true });
   } catch (e) {
     log('Push failed for', clientId + ':', e.message);
     notifyPush('push-fail', { clientId, error: e.message, pods: appPods });
   }
 }
 
-/**
- * After RC registers, query the broker via HTTP for existing clients and push
- * to any that have assigned pods. Also starts periodic polling for new clients.
- */
 function sweepExistingClients(ws) {
   if (!ws || ws.readyState !== 1) return;
   log('Sweeping for existing bootstrap clients...');
   notifyPush('sweep-start', { message: 'Scanning for existing clients' });
   fetchBrokerClients(ws);
-  // Start periodic polling for new clients
   startClientPoll(ws);
 }
 
-/**
- * Fetch client list via HTTP and push plugins to any with assigned pods.
- */
 function fetchBrokerClients(ws) {
   if (!ws || ws.readyState !== 1) return;
 
@@ -472,7 +556,6 @@ function fetchBrokerClients(ws) {
     res.on('data', (chunk) => { data += chunk; });
     res.on('end', () => {
       try {
-        // SSE format: "event: message\ndata: {...}\n\n"
         const jsonStr = data.includes('data: ') ? data.split('data: ').pop().trim() : data.trim();
         const parsed = JSON.parse(jsonStr);
         const content = parsed.result && parsed.result.content && parsed.result.content[0] && parsed.result.content[0].text;
@@ -480,22 +563,21 @@ function fetchBrokerClients(ws) {
         let pushed = 0;
         for (const c of clients) {
           if (c.clientId === CLIENT_ID) continue;
-          if (_pushedClients.has(c.clientId)) continue;
+          // TODO: re-enable push cache after debugging
+          // if (_pushedClients.has(c.clientId)) continue;
           if (getAppPods(c.clientId).length > 0) {
             pushToClient(ws, c.clientId);
-            _pushedClients.add(c.clientId);
+            // _pushedClients.add(c.clientId);
             pushed++;
           }
         }
         if (pushed > 0) log('Sweep complete:', pushed, 'client(s) received plugins');
-        // Only notify when something actually happened (avoid 5s poll noise)
         if (pushed > 0) {
           notifyPush('sweep-done', { clientsFound: clients.length, clientsPushed: pushed });
         }
-        _lastSweepError = null; // clear error dedup on success
+        _lastSweepError = null;
       } catch (e) {
         log('Sweep parse error:', e.message);
-        // Only notify on first occurrence of this error (avoid repeated noise)
         if (_lastSweepError !== e.message) {
           _lastSweepError = e.message;
           notifyPush('sweep-error', { error: e.message });
@@ -516,9 +598,6 @@ function fetchBrokerClients(ws) {
   req.end();
 }
 
-/**
- * Poll broker periodically for new clients that need plugin injection.
- */
 function startClientPoll(ws) {
   if (_pollTimer) clearInterval(_pollTimer);
   _pollTimer = setInterval(() => {
@@ -531,11 +610,10 @@ function startClientPoll(ws) {
   }, POLL_INTERVAL_MS);
 }
 
-// ── Minimal reverse-client protocol ──────────────────────────────────────────
+// ── Reverse client connection ────────────────────────────────────────────────
 
 function connect(url) {
   let reconnectDelay = RECONNECT_MS;
-  let closed = false;
 
   function start() {
     const ws = new WebSocket(url);
@@ -557,21 +635,7 @@ function connect(url) {
 
       if (msg.type === 'registered') {
         log('Registered as', msg.clientId, 'with', tools.length, 'tools');
-        // Sweep: after a short delay, check for existing bootstrap clients
-        // that connected before us and push their plugins
-        setTimeout(() => sweepExistingClients(ws), SWEEP_DELAY_MS);
-        return;
-      }
-
-      // ── React to broker client connect/disconnect events ──────────
-      if (msg.type === 'client_connected') {
-        const cid = msg.clientId;
-        if (cid && cid !== CLIENT_ID && getAppPods(cid).length > 0) {
-          log('Client connected:', cid, '— pushing pods...');
-          _pushedClients.delete(cid); // allow re-push for fresh connection
-          pushToClient(ws, cid);
-          _pushedClients.add(cid);
-        }
+        // Pull model: bootstrap pulls its own plugins — no sweep needed
         return;
       }
 
@@ -582,6 +646,53 @@ function connect(url) {
           log('Client disconnected:', cid, '— cleared from push cache');
         }
         return;
+      }
+
+      // ── Push/Verify result handling ──────────────────────────────
+      if (msg.type === 'tool_result' && msg.callId && pushToClient._pending) {
+        const pending = pushToClient._pending[msg.callId];
+        if (pending) {
+          delete pushToClient._pending[msg.callId];
+          const content = msg.content?.[0]?.text || '';
+          let parsed;
+          try { parsed = JSON.parse(content); } catch (_) { parsed = { raw: content }; }
+
+          if (pending.type === 'verify') {
+            // Verification result from info tool
+            const cid = pending.clientId;
+            if (parsed.error) {
+              log('⚠ VERIFY FAILED:', cid, '—', parsed.error);
+              notifyPush('verify-fail', { clientId: cid, error: parsed.error });
+            } else {
+              const registry = parsed.pluginRegistry || [];
+              const requireOk = parsed.requireAvailable;
+              const stats = parsed.requireStats || {};
+              if (registry.length > 0) {
+                log('✓ VERIFIED:', cid, '—', registry.length, 'plugins registered:', registry.join(', '));
+                log('  require() available:', requireOk, '| cached modules:', stats.cached || 0);
+                notifyPush('verify-success', { clientId: cid, pluginRegistry: registry, requireAvailable: requireOk, requireStats: stats });
+                _pushedClients.add(cid);
+              } else {
+                log('⚠ VERIFY WARNING:', cid, '— 0 plugins in registry. Push may have failed silently.');
+                log('  Full info:', JSON.stringify(parsed));
+                _pushedClients.delete(cid);
+                log('  Removed', cid, 'from push cache — will retry on next poll');
+                notifyPush('verify-warning', { clientId: cid, info: parsed, message: 'No plugins in registry after push — will retry' });
+              }
+            }
+          } else {
+            // Push execution result
+            const cid = pending.clientId;
+            if (msg.isError || parsed.error) {
+              log('✗ PUSH EXECUTE FAILED:', cid, '—', parsed.error || content);
+              notifyPush('push-execute-fail', { clientId: cid, error: parsed.error || content });
+            } else {
+              log('✓ Push executed on', cid);
+              notifyPush('push-executed', { clientId: cid, result: parsed });
+            }
+          }
+          return;
+        }
       }
 
       if (msg.type === 'tool_call') {
@@ -599,14 +710,14 @@ function connect(url) {
           const result = await entry.handler(msg.arguments || {}, msg.callId);
           const text = typeof result === 'string' ? result : JSON.stringify(result);
           ws.send(JSON.stringify({
-            type: 'tool_result', callId: msg.callId,
+            type: 'tool_result',
+            callId: msg.callId,
             content: [{ type: 'text', text }],
-            isError: false,
           }));
         } catch (err) {
           ws.send(JSON.stringify({
             type: 'tool_result', callId: msg.callId,
-            content: [{ type: 'text', text: 'Error: ' + err.message }],
+            content: [{ type: 'text', text: JSON.stringify({ error: err.message }) }],
             isError: true,
           }));
         }
@@ -614,31 +725,28 @@ function connect(url) {
     });
 
     ws.on('close', () => {
-      if (closed) return;
-      log('Disconnected. Reconnecting in', reconnectDelay + 'ms...');
-      setTimeout(start, reconnectDelay);
-      reconnectDelay = Math.min(reconnectDelay * 2, MAX_RECONNECT_MS);
+      activeWs = null;
+      if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
+      _pushedClients.clear();
+      const d = Math.min(reconnectDelay + Math.random() * 1000, MAX_RECONNECT_MS);
+      reconnectDelay = Math.min(reconnectDelay * 1.5, MAX_RECONNECT_MS);
+      log('Disconnected. Reconnecting in', Math.round(d / 1000) + 's...');
+      setTimeout(start, d);
     });
 
-    ws.on('error', (err) => {
-      log('WebSocket error:', err.message);
-    });
+    ws.on('error', () => { });
   }
 
   start();
-
-  process.on('SIGINT', () => { closed = true; log('Shutting down.'); process.exit(0); });
-  process.on('SIGTERM', () => { closed = true; log('Shutting down.'); process.exit(0); });
 }
 
-// ── Main ─────────────────────────────────────────────────────────────────────
+// ── Start ────────────────────────────────────────────────────────────────────
 
-const args = process.argv.slice(2);
-let url = process.env.PODBAY_BROKER_URL || DEFAULT_URL;
-const urlIdx = args.indexOf('--url');
-if (urlIdx !== -1 && args[urlIdx + 1]) url = args[urlIdx + 1];
+const url = process.argv.includes('--url')
+  ? process.argv[process.argv.indexOf('--url') + 1]
+  : (process.env.PODBAY_BROKER_URL || DEFAULT_URL);
 
-log('PodBay reverse client starting...');
+log('Starting PodBay reverse client...');
 log('Broker:', url);
-log('Tools:', tools.map(t => t.name).join(', '));
+log('Plugin URL base:', PLUGIN_URL_BASE);
 connect(url);

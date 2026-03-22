@@ -1,0 +1,28 @@
+{
+  "name": "Simple CJS Test",
+  "description": "Minimal test — two utility modules + one consumer that requires them",
+  "plugins": [
+    {
+      "type": "broker-client-sdk",
+      "file": "plugins/broker-client-sdk.js"
+    },
+    {
+      "type": "inline-test",
+      "description": "Inline code plugin using require property — auto-generates require() calls",
+      "require": ["greeting", "math-helper"],
+      "code": "window.__test_msg = greeting.greet('Inline Plugin');"
+    },
+    {
+      "type": "greeting",
+      "file": "plugins/greeting.js"
+    },
+    {
+      "type": "math-helper",
+      "file": "plugins/math-helper.js"
+    },
+    {
+      "type": "test",
+      "file": "plugins/test.js"
+    }
+  ]
+}

@@ -1,15 +1,26 @@
-;(function () {
-  'use strict';
+/**
+ * CWG Action Plugin
+ *
+ * Registers fold/call/check/raise/allin tools that click Cocos2d poker buttons
+ * via scene graph traversal and cc.Button._releaseAction().
+ *
+ * Requires: identity, bridge (via require)
+ */
+'use strict';
 
-  if (!window.PodBayIdentity.isGame) return;
-  if (window.__cwgActionInstalled) return;
-  window.__cwgActionInstalled = true;
+var identity = require('identity');
+var bridge = require('bridge');
+
+// Only run on game tables
+if (!identity.isGame) {
+  module.exports = { skipped: true, reason: 'not a game table' };
+} else {
 
   var TAG = '[CWG-Action]';
 
   var BUTTON_MAP = {
-    fold:  ['giveUpRed', 'giveupred'],
-    call:  ['followFl_Blue'],
+    fold: ['giveUpRed', 'giveupred'],
+    call: ['followFl_Blue'],
     check: ['free_bet_button', 'preBetCheck'],
     raise: ['raise_button_img', 'raise_button'],
     allin: ['allin', 'all_in']
@@ -33,11 +44,6 @@
     return findNode(scene, 'holdem_game_view');
   }
 
-  function isGameView() {
-    var gv = getGameView();
-    return !!gv;
-  }
-
   function enableParentChain(node, stopAt) {
     var chain = [];
     var cur = node;
@@ -55,7 +61,6 @@
     if (!btn && node.parent) {
       btn = node.parent.getComponent ? node.parent.getComponent(cc.Button) : null;
     }
-
     if (btn && typeof btn._releaseAction === 'function') {
       btn._releaseAction();
       return '_releaseAction';
@@ -96,44 +101,37 @@
     return { success: true, action: actionName, node: usedName, method: method, chain: chain };
   }
 
-  // Register tools via PodBayBridge with identity-derived clientId so tools appear
-  // as cwg-table-xxx__fold (not cwg__fold from the base system-plugin clientId)
-  var _bridge = (window.PodBayBridge && window.PodBayIdentity)
-    ? window.PodBayBridge(window.PodBayIdentity.clientId)
-    : null;
+  // Register tools via bridge with identity-derived clientId
+  var _bridge = bridge(identity.clientId);
 
-  if (_bridge) {
-    var actions = ['fold', 'call', 'check', 'raise', 'allin'];
-    for (var a = 0; a < actions.length; a++) {
-      (function (act) {
-        _bridge.addTool(
-          act,
-          function () { return executeAction(act); },
-          'Click the ' + act + ' button in the poker game',
-          {}
-        );
-      })(actions[a]);
-    }
-
-    _bridge.addTool(
-      'enable_parent_chain',
-      function (args) {
-        var gv = getGameView();
-        if (!gv) return { success: false, error: 'holdem_game_view not found' };
-        var node = findNode(gv, args.nodeName);
-        if (!node) return { success: false, error: 'node not found: ' + args.nodeName };
-        var chain = enableParentChain(node, gv.parent);
-        return { success: true, node: args.nodeName, chain: chain };
-      },
-      'Enable parent chain for a named Cocos2d node',
-      { nodeName: { type: 'string', description: 'Name of the target node' } },
-      ['nodeName']
-    );
-
-    console.log(TAG, 'Registered 6 action tools (fold/call/check/raise/allin/enable_parent_chain) on', window.PodBayIdentity.clientId);
-  } else {
-    console.warn(TAG, 'PodBayBridge or PodBayIdentity not available — tools not registered');
+  var actions = ['fold', 'call', 'check', 'raise', 'allin'];
+  for (var a = 0; a < actions.length; a++) {
+    (function (act) {
+      _bridge.addTool(
+        act,
+        function () { return executeAction(act); },
+        'Click the ' + act + ' button in the poker game',
+        {}
+      );
+    })(actions[a]);
   }
+
+  _bridge.addTool(
+    'enable_parent_chain',
+    function (args) {
+      var gv = getGameView();
+      if (!gv) return { success: false, error: 'holdem_game_view not found' };
+      var node = findNode(gv, args.nodeName);
+      if (!node) return { success: false, error: 'node not found: ' + args.nodeName };
+      var chain = enableParentChain(node, gv.parent);
+      return { success: true, node: args.nodeName, chain: chain };
+    },
+    'Enable parent chain for a named Cocos2d node',
+    { nodeName: { type: 'string', description: 'Name of the target node' } },
+    ['nodeName']
+  );
+
+  console.log(TAG, 'Registered 6 action tools on', identity.clientId);
 
   // Expose API on window for direct eval access
   window.__cwgAction = {
@@ -143,5 +141,12 @@
     getGameView: getGameView,
     BUTTON_MAP: BUTTON_MAP
   };
-  alert(TAG + ' API exposed on window.__cwgAction with executeAction(actionName) method');
-})();
+
+  module.exports = {
+    executeAction: executeAction,
+    enableParentChain: enableParentChain,
+    findNode: findNode,
+    getGameView: getGameView,
+    BUTTON_MAP: BUTTON_MAP
+  };
+}

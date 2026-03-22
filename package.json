@@ -1,18 +1,15 @@
 {
-  "name": "podbay",
-  "version": "2.0.0",
-  "description": "Open the pod bay doors — Electron portal CLI with plugin system and MCP tool publishing",
-  "main": "index.js",
-  "bin": {
-    "podbay": "index.js"
-  },
+  "name": "podbay-poc",
+  "version": "1.0.0",
+  "description": "PodBay POC — dynamic plugin composition with require() as the universal wiring layer",
+  "main": "reverse-client.js",
   "scripts": {
-    "start": "node index.js",
-    "serve": "node reverse-client.js",
-    "deploy": "docker compose up --build -d"
+    "start": "node reverse-client.js",
+    "restart": "docker compose restart podbay",
+    "rebuild:image": "docker compose up -d --build",
+    "rebuild:app": "docker compose restart podbay && node index.js rebuild clubwpt-desktop"
   },
   "dependencies": {
     "ws": "^8.18.0"
-  },
-  "license": "MIT"
+  }
 }

@@ -1,41 +1,47 @@
-# discover.js — Developer's Guide
+# discover.js (PodBay) — Developer's Guide
 
 ## Summary
 
-`discover.js` is the **application scanner**. It searches known installation directories on the host system to find Electron apps that contain an `app.asar` — making them candidates for PodBay injection.
+`discover.js` is the **Electron application scanner**. It searches known installation directories on the host system for Electron apps that contain an `app.asar` file, identifying them as candidates for PodBay injection.
 
-This is the first step in the PodBay workflow: before you can patch an app, you need to find it. `discover.js` automates this by scanning standard Windows program directories (and any custom paths) for the telltale `resources/app.asar` structure that identifies an Electron application.
+This version is **identical to the original** — discovery logic doesn't change between the standard and next-gen plugin systems. The same apps are found; only what happens *after* discovery (patching, bootstrap, plugin loading) differs.
 
 ### Key Concepts
 
-- **Convention-Based Discovery**: Scans well-known Windows install paths — no manual configuration required for standard installs.
-- **Extensible Search Roots**: Custom directories can be added via the `PODBAY_SEARCH_ROOTS` environment variable (useful for Docker mounts or non-standard install locations).
-- **Minimal Output**: Returns just the app name and ASAR path — enough to feed directly into `asar.js` functions.
+- **Convention-Based Discovery**: Scans standard Windows install paths without manual configuration.
+- **Extensible Roots**: Custom paths added via the `PODBAY_SEARCH_ROOTS` environment variable.
+- **Pipeline Entry Point**: Returns `{ name, asarPath }` tuples that feed directly into `asar.js` for patching and `pods.js` for app-pod assignment.
+- **Fault-Tolerant**: Undefined environment variables are filtered out, and unreadable directories are silently skipped.
 
 ```mermaid
 flowchart TD
-    subgraph "Search Roots"
+    subgraph "Search Roots (built at module load)"
         R1["%LOCALAPPDATA%/Programs"]
         R2["%PROGRAMFILES%"]
         R3["%PROGRAMFILES(X86)%"]
-        R4["PODBAY_SEARCH_ROOTS<br/>(custom paths)"]
+        FB[".filter(Boolean)<br/>removes undefined env vars"]
+        R4["PODBAY_SEARCH_ROOTS<br/>(custom, env var)"]
     end
 
-    R1 --> S["discover()"]
-    R2 --> S
-    R3 --> S
+    R1 --> FB
+    R2 --> FB
+    R3 --> FB
+    FB --> S["discover()"]
     R4 -->|"optional"| S
 
-    S --> |"scan each root"| D{"For each<br/>subdirectory"}
-    D --> C{"resources/<br/>app.asar<br/>exists?"}
+    S --> D{"For each root<br/>(skip if missing)"}
+    D --> RD["readdirSync(root)<br/>try/catch — skip on error"]
+    RD --> E{"For each<br/>subdirectory"}
+    E --> C{"resources/<br/>app.asar<br/>exists?"}
     C -->|Yes| F["{ name, asarPath }"]
-    C -->|No| skip["Skip"]
+    C -->|No| E
 
     F --> OUT["Array of discovered apps"]
 
     style S fill:#1e3a5f,stroke:#4a9eff,color:#fff
     style OUT fill:#2d5a1e,stroke:#4aff5e,color:#fff
     style R4 fill:#5a4a1e,stroke:#ffcc4a,color:#fff
+    style FB fill:#3a1e5f,stroke:#9a4aff,color:#fff
 ```
 
 ---
@@ -44,123 +50,78 @@ flowchart TD
 
 ### Search Root Construction
 
-The module builds its list of directories to scan at **load time** (module scope, not per-call):
+Built at module load time from environment variables:
 
-```mermaid
-flowchart TD
-    A["Module loads"] --> B["Build SEARCH_ROOTS array"]
-    B --> C["Add %LOCALAPPDATA%/Programs"]
-    B --> D["Add %PROGRAMFILES%"]
-    B --> E["Add %PROGRAMFILES(X86)%"]
-    B --> F{"PODBAY_SEARCH_ROOTS<br/>env var set?"}
-    F -->|Yes| G["Split by ; or , → append each"]
-    F -->|No| H["Done"]
-    G --> H
-
-    style B fill:#1e3a5f,stroke:#4a9eff,color:#fff
-```
-
-#### Default Roots (Windows)
-
-| Environment Variable | Typical Path | What's There |
-|---------------------|--------------|--------------|
-| `%LOCALAPPDATA%\Programs` | `C:\Users\<user>\AppData\Local\Programs` | Per-user installs (VS Code, Discord, Slack, etc.) |
+| Source | Typical Path | What's There |
+|--------|--------------|--------------|
+| `%LOCALAPPDATA%\Programs` | `C:\Users\<user>\AppData\Local\Programs` | Per-user installs (VS Code, Discord, etc.) |
 | `%PROGRAMFILES%` | `C:\Program Files` | 64-bit system installs |
 | `%PROGRAMFILES(X86)%` | `C:\Program Files (x86)` | 32-bit installs on 64-bit Windows |
+| `PODBAY_SEARCH_ROOTS` | Any custom paths | Docker mounts, dev builds, portable installs |
 
-Each is sourced from `process.env` and filtered for existence (`filter(Boolean)` removes any undefined variables).
+The three environment variables are collected into an array and filtered with `.filter(Boolean)` — any undefined env var (e.g., `LOCALAPPDATA` not set) is silently removed rather than causing errors.
 
-#### Custom Roots
+Custom roots use **separator detection**: if the string contains `;`, it splits on `;`; otherwise it splits on `,`. Only one separator is used per invocation — they are not mixed. Each segment is trimmed and empty strings are filtered out before appending to the search list.
 
-The `PODBAY_SEARCH_ROOTS` environment variable allows adding arbitrary paths:
-
-```bash
-# Semicolon or comma separated
-PODBAY_SEARCH_ROOTS="D:\apps;E:\electron-apps"
-```
-
-This is particularly useful for:
-- **Docker volume mounts** — Where the host app directory is mounted at a non-standard path
-- **Development builds** — Electron apps built locally in custom directories
-- **Portable installs** — Apps on external drives or non-standard locations
-
-### The Discovery Algorithm
+### Discovery Algorithm
 
 ```mermaid
 flowchart TD
     A["discover()"] --> B["For each search root"]
-    B --> C{"Root<br/>exists?"}
+    B --> C{"fs.existsSync(root)?"}
     C -->|No| B
-    C -->|Yes| D["readdirSync(root)"]
-    D --> E["For each subdirectory"]
+    C -->|Yes| D["try: readdirSync(root)"]
+    D -->|catch| B
+    D -->|ok| E["For each subdirectory"]
     E --> F["Check: root/dir/resources/app.asar"]
-    F --> G{"File<br/>exists?"}
+    F --> G{"fs.existsSync(asar)?"}
     G -->|Yes| H["Push { name: dir, asarPath }"]
     G -->|No| E
     H --> E
-    E -->|"all dirs scanned"| B
-    B -->|"all roots scanned"| I["Return found[]"]
+    E -->|done| B
+    B -->|done| I["Return found[]"]
 
     style I fill:#2d5a1e,stroke:#4aff5e,color:#fff
+    style D fill:#5a4a1e,stroke:#ffcc4a,color:#fff
 ```
 
-The algorithm is **shallow** — it only checks one level deep in each search root. This matches how Electron apps are typically installed:
+The scan is **one level deep** — matching the standard Electron install layout. The `readdirSync` call is wrapped in a `try/catch` that silently skips roots where reading fails (permissions, broken links, etc.):
 
 ```
-C:\Users\<user>\AppData\Local\Programs\
-├── clubwpt-desktop/          ← app directory
+%LOCALAPPDATA%\Programs\
+├── clubwpt-desktop/
 │   └── resources/
-│       └── app.asar          ← ✓ discovered
-├── Microsoft VS Code/
+│       └── app.asar    ← discovered
+├── some-other-app/
 │   └── resources/
-│       └── app.asar          ← ✓ discovered
-└── some-other-tool/
-    └── (no resources/)       ← ✗ skipped
+│       └── app.asar    ← discovered
+└── non-electron-tool/
+    └── (no resources/)  ← skipped
 ```
 
-### Return Value
-
-```js
-[
-  { name: 'clubwpt-desktop', asarPath: 'C:\\Users\\...\\clubwpt-desktop\\resources\\app.asar' },
-  { name: 'Microsoft VS Code', asarPath: 'C:\\Program Files\\Microsoft VS Code\\resources\\app.asar' }
-]
-```
-
-Each result contains:
-- **`name`** — The directory name (used as the app identifier throughout PodBay, e.g., in `app-pods.json` mapping)
-- **`asarPath`** — The absolute path to `app.asar` (passed directly to `asar.js` functions)
-
-### Error Handling
-
-The function is defensively coded:
-- Non-existent roots are silently skipped (`fs.existsSync` check)
-- Unreadable directories are caught and skipped (`try/catch` around `readdirSync`)
-- No errors are thrown — worst case returns an empty array
-
-### Integration with Other Modules
+### Integration: PodBay Pipeline
 
 ```mermaid
 flowchart LR
-    DIS["discover.js<br/>discover()"] -->|"{ name, asarPath }"| ASAR["asar.js<br/>backup/extract/patch"]
+    DIS["discover.js<br/>find apps"] -->|"{ name, asarPath }"| ASAR["asar.js<br/>backup → extract → patch"]
     DIS -->|"name"| PODS["pods.js<br/>getAppPods(name)"]
-    PODS -->|"pod files"| RESOLVE["pods.js<br/>getPluginCodeForPods()"]
-    ASAR -->|"patched app"| BOOT["bootstrap.js<br/>(injected at runtime)"]
+    PODS -->|"pod files"| RESOLVE["pods.js<br/>resolvePlugins()<br/>(combinable properties)"]
+    ASAR -->|"patched app launches"| BOOT["bootstrap.js<br/>(require + pull model)"]
+    BOOT -->|"HTTP pull"| BROKER["Broker assembles<br/>plugins from pods"]
+    RESOLVE -.->|"plugin code"| BROKER
 
     style DIS fill:#3a1e5f,stroke:#9a4aff,color:#fff
-    style ASAR fill:#1e3a5f,stroke:#4a9eff,color:#fff
-    style PODS fill:#5a4a1e,stroke:#ffcc4a,color:#fff
-    style BOOT fill:#2d5a1e,stroke:#4aff5e,color:#fff
+    style BOOT fill:#1e3a5f,stroke:#4a9eff,color:#fff
+    style RESOLVE fill:#5a4a1e,stroke:#ffcc4a,color:#fff
 ```
 
-`discover()` is the entry point of the full pipeline:
-1. **discover.js** finds apps → returns names and ASAR paths
-2. **asar.js** uses the ASAR path to backup, extract, and patch
-3. **pods.js** uses the app name to look up assigned pods and resolve plugins
-4. **bootstrap.js** runs inside the patched app at runtime, connecting back to the broker
+1. **discover.js** finds Electron apps and returns names + ASAR paths
+2. **asar.js** patches `WindowManager.js` with menu bar, DevTools shortcuts, and bootstrap injection
+3. **pods.js** resolves the app's assigned pods into combined plugin code (using combinable `require`/`file`/`code` properties)
+4. **bootstrap.js** (PodBay) — at runtime, the embedded `require()` polyfill loads, then pulls plugins via HTTP/MCP and registers them as CommonJS modules
 
 ### Exports
 
 | Export | Purpose |
 |--------|---------|
-| `discover()` | Scan and return all Electron apps with `app.asar` |
+| `discover()` | Scan and return all Electron apps containing `app.asar` |

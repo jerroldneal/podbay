@@ -82,7 +82,10 @@
 
   var BROKER_MCP = 'http://localhost:3098/mcp';
   var BROKER_WS  = 'ws://localhost:3099';
-  var CLIENT_ID  = 'remote-console';
+  var CLIENT_ID  = 'poc-console';
+
+  // Service client IDs to exclude from instance discovery
+  var EXCLUDED_CLIENTS = [CLIENT_ID, 'podbay', 'remote-console'];
 
   var output   = document.getElementById('output');
   var cmdInput = document.getElementById('cmdInput');
@@ -145,6 +148,7 @@
   }
 
   function formatTabLabel(clientId) {
+    if (clientId === 'clubwpt-desktop') return 'Desktop';
     if (clientId === 'cwg-lobby') return 'Lobby';
     if (clientId.indexOf('cwg-table-') === 0) return 'Table ' + clientId.slice(10);
     if (clientId.indexOf('cwg-window-') === 0) return 'Window ' + clientId.slice(11);
@@ -304,15 +308,15 @@
       for (var i = 0; i < clients.length; i++) {
         var c = clients[i];
         var cid = c.clientId || c;
-        // Include clients that have an eval tool (registered via console-bridge)
-        if (cid === CLIENT_ID || cid === 'podbay') continue;
+        // Skip excluded service clients
+        if (EXCLUDED_CLIENTS.indexOf(cid) >= 0) continue;
         // Check if client has eval tool by checking tool list
         if (c.tools && Array.isArray(c.tools)) {
           var hasEval = c.tools.some(function (t) { return t === 'eval' || (t && t.name === 'eval'); });
           if (hasEval) found[cid] = true;
         } else {
-          // If no tool info, include cwg-* clients as candidates
-          if (cid.indexOf('cwg-') === 0) found[cid] = true;
+          // If no tool info, include cwg-* and clubwpt-desktop clients as candidates
+          if (cid.indexOf('cwg-') === 0 || cid === 'clubwpt-desktop') found[cid] = true;
         }
       }
 
@@ -356,7 +360,7 @@
         type: 'register',
         clientId: CLIENT_ID,
         tools: [],
-        metadata: { product: 'remote-console' }
+        metadata: { product: 'poc-console' }
       }));
       addSystemLine('Connected to broker.');
       discoverInstances();
@@ -485,7 +489,7 @@
 
   // ── Start ──────────────────────────────────────────────────────────
 
-  addSystemLine('PodBay Remote Console — connecting to broker...');
+  addSystemLine('PodBay Console — connecting to broker...');
   connectWs();
 })();
 </script>

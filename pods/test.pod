@@ -1,0 +1,12 @@
+{
+  "name": "Simple CJS Test",
+  "description": "Minimal test — broker-client-sdk is auto-injected, identity is mandatory",
+  "plugins": [
+    {
+      "type": "identity",
+      "file": "plugins/identity.js",
+      "description": "Installs window.PodBayIdentity — CWG window identity detection from URL params",
+      "mandatory": true
+    }
+  ]
+}

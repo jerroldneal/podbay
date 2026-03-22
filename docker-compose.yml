@@ -4,23 +4,17 @@ services:
     container_name: podbay
     restart: unless-stopped
     environment:
-      # Broker URL — override for Docker networking
       - PODBAY_BROKER_URL=ws://host.docker.internal:3099
-      # Search roots for app discovery inside the container
       - PODBAY_SEARCH_ROOTS=/host/programs
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      # Mount host Electron app directories (adjust paths for your system)
-      # Windows: mount LOCALAPPDATA\Programs for app discovery
       - "${LOCALAPPDATA}/Programs:/host/programs:rw"
-      # Mount lib directory so plugin changes are live without rebuild
+      - ./reverse-client.js:/app/reverse-client.js:rw
+      - ./index.js:/app/index.js:rw
       - ./lib:/app/lib:rw
-      # Mount registry so opt-in state survives rebuilds
       - ./.opted-in.json:/app/.opted-in.json:rw
-      # Mount pods directory so saves persist on the host
       - ./pods:/app/pods:rw
-      # Mount plugins directory so saves persist on the host
       - ./plugins:/app/plugins:rw
     network_mode: bridge
 
@@ -29,17 +23,8 @@ services:
     container_name: podbay-dashboard
     restart: unless-stopped
     ports:
-      - "8080:80"
+      - "8081:80"
     volumes:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - ./dashboard.html:/usr/share/nginx/html/index.html:ro
-      - ./pod-editor.html:/usr/share/nginx/html/pod-editor.html:ro
-      - ./plugin-editor.html:/usr/share/nginx/html/plugin-editor.html:ro
       - ./console.html:/usr/share/nginx/html/console.html:ro
-      - ./game-status.html:/usr/share/nginx/html/game-status.html:ro
-      - ./broker-client-dashboard.html:/usr/share/nginx/html/broker-client-dashboard.html:ro
-      - ./workshops/telemetry-bus/lib/bus.js:/usr/share/nginx/html/lib/bus.js:ro
-      - ./workshops/telemetry-bus/telemetry-dashboard.html:/usr/share/nginx/html/telemetry-dashboard.html:ro
-      # Plugin file serving — enables dynamic require() at runtime
-      - ./plugins:/usr/share/nginx/html/plugins:ro
-      - ./lib:/usr/share/nginx/html/lib-podbay:ro
