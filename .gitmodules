@@ -43,3 +43,6 @@
 [submodule "workshops/mcp-broker"]
 	path = workshops/mcp-broker
 	url = https://github.com/jerroldneal/mcp-broker.git
+[submodule "workshops/podbay-legacy"]
+	path = workshops/podbay-legacy
+	url = https://github.com/jerroldneal/podbay-legacy.git
