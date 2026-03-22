@@ -1,3 +1,5 @@
 node_modules/
 .work/
 .opted-in.json
+.mcp-shell-exec-logs/
+.vscode/
