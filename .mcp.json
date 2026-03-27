@@ -1,0 +1,38 @@
+{
+  "mcpServers": {
+    "kokoro-tts": {
+      "type": "http",
+      "url": "http://localhost:3021/mcp"
+    },
+    "chrome-devtools": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "chrome-devtools-mcp",
+        "--browser-url",
+        "http://127.0.0.1:9222"
+      ]
+    },
+    "shell-exec": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "d:\\development\\chrome-native-relay\\mcp-shell-exec\\server.js"
+      ]
+    },
+    "mcp-broker": {
+      "type": "http",
+      "url": "http://localhost:3098/mcp"
+    },
+    "repo-map": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "d:\\development\\mcp-repo-map\\server.js",
+        "--root",
+        "c:\\.podbay"
+      ]
+    }
+  }
+}
