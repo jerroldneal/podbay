@@ -24,7 +24,7 @@ var SERVICE_CLIENT_ID = 'clubwpt-login-svc';
 var PHONE_NUMBER = '8184450634';
 var PHONE_INPUT_SELECTOR = '#input-0';
 var PHONE_BUTTON_SELECTOR = '#app > div > div > main > div.w-screen.h-screen.d-flex.d-row.align-center.justify-center.cusLoginStyle > div > div.h-100.d-flex.flex-column.justify-space-between.bg-surfaceElevation1 > div:nth-child(2) > div > div.v-row.d-flex.justify-center.mt-10 > form > a > button';
-var AUTORUN_ON_LOAD = true;
+var AUTORUN_ON_LOAD = false;
 
 /**
  * Find the login frame client name from the parent's frame registry.

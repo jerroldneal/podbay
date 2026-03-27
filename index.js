@@ -19,6 +19,8 @@ const BOOTSTRAP_MODULES = {
   'tool-handler': path.join(__dirname, 'lib', 'tool-handler.js'),
   'mcp-client': path.join(__dirname, 'lib', 'mcp-client.js'),
   'element-clients': path.join(__dirname, 'lib', 'element-clients.js'),
+  'inference-client': path.join(__dirname, 'lib', 'inference-client.js'),
+  'element-log': path.join(__dirname, 'lib', 'element-log.js'),
 };
 
 // Frame clients: URL pattern → broker client name
