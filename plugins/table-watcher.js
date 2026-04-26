@@ -12,6 +12,8 @@
  *   tw.gameStatus()  — structured game state
  */
 'use strict';
+var TAG = '[PodBay table-watcher]';
+var bridge = require('bridge');
 
 // Skip lobby windows — table watcher only runs on tables
 var params = new URLSearchParams(window.location.search);
@@ -482,7 +484,7 @@ function buildGameStatus(snap) {
   });
 
   return {
-    timestamp: snap.timestamp,
+    //timestamp: snap.timestamp,
     street: snap.street,
     pot: snap.pot || null,
     tableCenter: snap.tableCenter,
@@ -499,6 +501,43 @@ function buildGameStatus(snap) {
   };
 }
 
+// ── Game-state change watcher ───────────────────────────────────────────
+var _lastStateStr = null;
+var _watchTimer = null;
+
+var identity = require('identity');
+var bridge = require('bridge');
+var clientId = identity.clientId || 'table-watcher';
+var b = bridge(clientId);
+var notify = function(args) {
+  b.notify({ method: 'notify', type: 'gameState/change', ...args, timestamp: Date.now()});
+}
+
+function startWatch(intervalMs) {
+  if (isLobby) return;
+  if (_watchTimer) return; // already watching
+  intervalMs = intervalMs || 1000;
+
+  _watchTimer = setInterval(function () {
+    var status = tableWatcher.gameStatus();
+    if (status.error) return;
+
+    var currStr = JSON.stringify(status);
+    if (currStr === _lastStateStr) {
+      return;
+    }
+
+    _lastStateStr = currStr;
+
+    notify(status)
+  }, intervalMs);
+
+}
+
+function stopWatch() {
+  if (_watchTimer) { clearInterval(_watchTimer); _watchTimer = null; }
+}
+
 // ── Export ─────────────────────────────────────────────────────────────
 var tableWatcher = {
   snapshot: function () {
@@ -511,10 +550,21 @@ var tableWatcher = {
     if (snap.error) return snap;
     return buildGameStatus(snap);
   },
-  buildGameStatus: buildGameStatus
+  notifyStatus: function() {
+    var status = tableWatcher.gameStatus();
+    // console.notify(TAG, "gameState/change", status);
+    notify([TAG, "gameState/change", status]);
+    return status;
+  },
+  buildGameStatus: buildGameStatus,
+  watch: startWatch,
+  stopWatch: stopWatch
 };
 
 // Also install on window for backward compat
 window.PodBayTableWatcher = tableWatcher;
+console.log(TAG,"gameState/change", {text:'starting'});
+// Auto-start watching when the plugin loads
+startWatch();
 
 module.exports = tableWatcher;

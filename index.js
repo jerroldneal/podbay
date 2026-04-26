@@ -21,6 +21,7 @@ const BOOTSTRAP_MODULES = {
   'element-clients': path.join(__dirname, 'lib', 'element-clients.js'),
   'inference-client': path.join(__dirname, 'lib', 'inference-client.js'),
   'element-log': path.join(__dirname, 'lib', 'element-log.js'),
+  'notify': path.join(__dirname, 'lib', 'notify.js'),
 };
 
 // Frame clients: URL pattern → broker client name
